@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Logitime</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+        onerror="document.getElementById('chartWarning').style.display='block'"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root,[data-theme="dark"]{
+  --bg:#0a0e17;--bg2:#111827;--bg3:#1a2234;--bg4:#243049;
+  --text:#e2e8f0;--text2:#94a3b8;--text3:#64748b;
+  --accent:#3b82f6;--accent2:#60a5fa;--green:#22c55e;--red:#ef4444;
+  --orange:#f59e0b;--purple:#a855f7;
+  --border:#1e293b;--radius:10px;
+  --font:'Segoe UI',-apple-system,system-ui,sans-serif;--mono:'Cascadia Code','Consolas',monospace;
+  --shadow:0 2px 8px rgba(0,0,0,.3);
+}
+[data-theme="light"]{
+  --bg:#f1f5f9;--bg2:#ffffff;--bg3:#f8fafc;--bg4:#e2e8f0;
+  --text:#1e293b;--text2:#475569;--text3:#94a3b8;
+  --border:#e2e8f0;--shadow:0 2px 8px rgba(0,0,0,.08);
+}
+html{font-size:15px}
+body{font-family:var(--font);background:var(--bg);color:var(--text);min-height:100vh;transition:background .2s,color .2s}
+a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+
+/* LOGIN */
+#loginScreen{display:flex;align-items:center;justify-content:center;min-height:100vh;background:var(--bg)}
+.login-box{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:48px 40px;width:380px;box-shadow:0 8px 32px rgba(0,0,0,.4)}
+.login-box .logo{text-align:center;font-size:2rem;font-weight:700;margin-bottom:32px;letter-spacing:-1px}
+.login-box .logo span{color:var(--accent)}
+.login-box .field{margin-bottom:16px}
+.login-box label{display:block;font-size:.8rem;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+.login-box .error-msg{color:var(--red);font-size:.85rem;text-align:center;margin-bottom:12px;min-height:1.2em}
+
+/* LAYOUT */
+.shell{display:none;min-height:100vh}
+.shell.show{display:flex}
+.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--border);padding:24px 16px;display:flex;flex-direction:column;gap:4px;position:fixed;top:0;left:0;bottom:0;z-index:10;transition:background .2s}
+.sidebar .logo{font-size:1.3rem;font-weight:700;margin-bottom:20px;padding:0 8px;letter-spacing:-.5px}
+.sidebar .logo span{color:var(--accent)}
+.user-info{padding:8px 12px;margin-bottom:12px;background:var(--bg3);border-radius:8px;font-size:.8rem}
+.user-info .uname{font-weight:600;color:var(--text)}
+.user-info .urole{font-size:.7rem;color:var(--accent2);text-transform:uppercase;letter-spacing:.5px}
+.nav-btn{display:flex;align-items:center;gap:10px;padding:10px 12px;border:none;background:transparent;color:var(--text2);cursor:pointer;border-radius:8px;font:500 .9rem var(--font);transition:all .15s;width:100%;text-align:left}
+.nav-btn:hover{background:var(--bg3);color:var(--text)}.nav-btn.active{background:var(--accent);color:#fff}
+.nav-btn .ico{font-size:1.1rem;width:24px;text-align:center}
+.nav-btn.admin-only{display:none}
+.sidebar-bottom{margin-top:auto;display:flex;flex-direction:column;gap:8px}
+.sidebar-footer{padding:8px;font-size:.75rem;color:var(--text3);border-top:1px solid var(--border);padding-top:12px}
+.theme-toggle,.logout-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;border-radius:8px;font:500 .8rem var(--font);transition:all .15s;width:100%}
+.theme-toggle:hover,.logout-btn:hover{border-color:var(--accent)}
+.logout-btn{border-color:var(--red);color:var(--red)}
+.logout-btn:hover{background:var(--red);color:#fff}
+.main{margin-left:220px;flex:1;padding:32px;max-width:1400px}
+
+/* CARDS */
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:24px;box-shadow:var(--shadow);transition:background .2s,border-color .2s}
+.card-title{font-size:1rem;font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.card-grid{display:grid;gap:16px}
+.card-grid.cols-4{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.card-grid.cols-2{grid-template-columns:repeat(auto-fit,minmax(400px,1fr))}
+.card-grid.cols-3{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.kpi{text-align:center;padding:20px}
+.kpi .value{font-size:2.2rem;font-weight:700;font-family:var(--mono);letter-spacing:-1px}
+.kpi .label{font-size:.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:1px;margin-top:4px}
+.kpi.blue .value{color:var(--accent2)}.kpi.green .value{color:var(--green)}.kpi.red .value{color:var(--red)}.kpi.orange .value{color:var(--orange)}.kpi.purple .value{color:var(--purple)}
+
+/* TABLE */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:10px 12px;color:var(--text3);font-weight:600;text-transform:uppercase;font-size:.7rem;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+td{padding:10px 12px;border-bottom:1px solid var(--border)}
+tr:hover{background:var(--bg3)}
+.text-right{text-align:right}.text-center{text-align:center}
+.mono{font-family:var(--mono);font-size:.85rem}
+
+/* BADGES */
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.badge-green{background:#052e16;color:#4ade80}.badge-red{background:#450a0a;color:#f87171}
+.badge-orange{background:#451a03;color:#fbbf24}.badge-blue{background:#172554;color:#60a5fa}
+.badge-gray{background:var(--bg4);color:var(--text3)}.badge-purple{background:#3b0764;color:#c084fc}
+[data-theme="light"] .badge-green{background:#dcfce7;color:#166534}
+[data-theme="light"] .badge-red{background:#fef2f2;color:#991b1b}
+[data-theme="light"] .badge-orange{background:#fffbeb;color:#92400e}
+[data-theme="light"] .badge-blue{background:#eff6ff;color:#1d4ed8}
+
+/* UPLOAD */
+.upload-zone{border:2px dashed var(--border);border-radius:16px;padding:48px;text-align:center;cursor:pointer;transition:all .2s}
+.upload-zone:hover,.upload-zone.dragover{border-color:var(--accent);background:rgba(59,130,246,.05)}
+.upload-zone .icon{font-size:3rem;margin-bottom:12px}
+.upload-zone h3{font-size:1.1rem;margin-bottom:6px}
+.upload-zone p{color:var(--text3);font-size:.85rem}
+.upload-zone input[type="file"]{display:none}
+.file-selected{display:none;align-items:center;gap:16px;padding:20px 24px;border:2px solid var(--accent);border-radius:16px;background:rgba(59,130,246,.05);margin-top:16px}
+.file-selected.show{display:flex}
+.file-selected .file-info{flex:1}.file-selected .file-name{font-weight:600;font-size:1rem}
+.file-selected .file-size{font-size:.8rem;color:var(--text3);margin-top:2px}.file-selected .file-icon{font-size:2rem}
+
+/* BUTTONS */
+.btn{padding:10px 20px;border:none;border-radius:8px;font:600 .85rem var(--font);cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.btn-primary{background:var(--accent);color:#fff}.btn-primary:hover{background:#2563eb}
+.btn-success{background:var(--green);color:#fff}.btn-success:hover{background:#16a34a}
+.btn-sm{padding:6px 12px;font-size:.8rem}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border)}.btn-ghost:hover{background:var(--bg3)}
+.btn-danger{background:var(--red);color:#fff}.btn-danger:hover{background:#dc2626}
+.btn-lg{padding:14px 28px;font-size:1rem;border-radius:12px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.input{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:8px;font:.9rem var(--font);width:100%;transition:border-color .15s}
+.input:focus{outline:none;border-color:var(--accent)}
+select.input{cursor:pointer}
+
+/* TOASTS */
+#toasts{position:fixed;top:16px;right:16px;z-index:999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{padding:12px 20px;border-radius:10px;font-size:.85rem;display:flex;align-items:center;gap:8px;pointer-events:auto;animation:toastIn .3s ease;max-width:400px}
+.toast-success{background:#052e16;color:#4ade80;border:1px solid #166534}
+.toast-error{background:#450a0a;color:#f87171;border:1px solid #991b1b}
+.toast-warning{background:#451a03;color:#fbbf24;border:1px solid #92400e}
+.toast-info{background:#172554;color:#60a5fa;border:1px solid #1e40af}
+[data-theme="light"] .toast-success{background:#dcfce7;color:#166534;border-color:#86efac}
+[data-theme="light"] .toast-error{background:#fef2f2;color:#991b1b;border-color:#fca5a5}
+@keyframes toastIn{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes toastOut{from{opacity:1}to{transform:translateX(100%);opacity:0}}
+.loader{display:none;text-align:center;padding:32px}.loader.show{display:block}
+.spinner{width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.alert{padding:16px 20px;border-radius:10px;margin:12px 0;font-size:.9rem}
+.alert-error{background:#450a0a;color:#f87171;border:1px solid #991b1b}
+[data-theme="light"] .alert-error{background:#fef2f2;color:#991b1b}
+.section{margin-top:16px}
+.filters{display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+.filters .input{max-width:250px}
+.timing{font-size:.75rem;color:var(--text3);font-family:var(--mono);background:var(--bg3);padding:3px 8px;border-radius:4px}
+#lastAnalysis{display:none;align-items:center;gap:16px;padding:16px 20px;background:var(--bg2);border:1px solid var(--border);border-radius:12px;margin-bottom:24px;cursor:pointer;transition:border-color .2s}
+#lastAnalysis:hover{border-color:var(--accent)}
+.la-icon{font-size:2rem}.la-info{flex:1}.la-title{font-weight:600;font-size:.95rem}
+.la-meta{display:flex;gap:16px;font-size:.8rem;color:var(--text2);margin-top:4px}.la-arrow{color:var(--text3);font-size:1.2rem}
+.history-item{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;cursor:pointer;transition:all .15s}
+.history-item:hover{border-color:var(--accent);background:var(--bg3)}
+.history-item .meta{display:flex;align-items:center;gap:12px;font-size:.85rem;color:var(--text2)}
+.chart-container{position:relative;height:280px}
+#chartWarning{display:none;padding:12px;text-align:center;color:var(--orange);font-size:.85rem}
+.page{display:none}.page.active{display:block}
+.show-more-row{text-align:center;padding:12px}
+.show-more-row button{background:var(--bg3);border:1px solid var(--border);color:var(--accent2);padding:8px 24px;border-radius:8px;cursor:pointer;font:500 .85rem var(--font)}
+
+/* ADMIN */
+.admin-form{display:grid;gap:12px;max-width:500px}
+.admin-form .row{display:flex;gap:12px}
+.admin-form .row>*{flex:1}
+.setting-group{margin-bottom:24px}
+.setting-group h3{font-size:.95rem;margin-bottom:12px;color:var(--text)}
+.setting-row{display:flex;align-items:center;gap:16px;padding:10px 0;border-bottom:1px solid var(--border)}
+.setting-row label{min-width:120px;font-size:.85rem;color:var(--text2)}
+.setting-row input[type="number"]{width:100px;background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:6px;font:.85rem var(--mono);text-align:center}
+.setting-row input[type="number"]:focus{outline:none;border-color:var(--accent)}
+
+/* MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;width:440px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.4)}
+.modal h3{margin-bottom:20px}
+</style>
+</head>
+<body>
+
+<div id="toasts"></div>
+<div id="chartWarning">Las graficas no estan disponibles sin conexion</div>
+
+<!-- ============ LOGIN SCREEN ============ -->
+<div id="loginScreen">
+  <div class="login-box">
+    <div class="logo">Logi<span>time</span></div>
+    <div class="error-msg" id="loginError"></div>
+    <div class="field"><label>Usuario</label><input class="input" id="loginUser" autocomplete="username"></div>
+    <div class="field"><label>Contrasena</label><input class="input" id="loginPass" type="password" autocomplete="current-password"></div>
+    <button class="btn btn-primary btn-lg" style="width:100%;margin-top:8px" id="loginBtn" onclick="doLogin()">Entrar</button>
+    <p style="text-align:center;margin-top:20px;font-size:.75rem;color:var(--text3)">Primera vez? admin / admin123</p>
+  </div>
+</div>
+
+<!-- ============ APP SHELL ============ -->
+<div class="shell" id="appShell">
+<aside class="sidebar">
+  <div class="logo">Logi<span>time</span></div>
+  <div class="user-info">
+    <div class="uname" id="userDisplay">—</div>
+    <div class="urole" id="roleDisplay">—</div>
+  </div>
+  <button class="nav-btn active" data-page="upload"><span class="ico">📤</span>Analizar</button>
+  <button class="nav-btn" data-page="dashboard"><span class="ico">📊</span>Dashboard</button>
+  <button class="nav-btn" data-page="operarios"><span class="ico">👷</span>Operarios</button>
+  <button class="nav-btn" data-page="clientes"><span class="ico">🏢</span>Clientes</button>
+  <button class="nav-btn" data-page="historial"><span class="ico">📋</span>Historial</button>
+  <button class="nav-btn" data-page="comparar"><span class="ico">🔀</span>Comparar</button>
+  <button class="nav-btn admin-only" data-page="admin-users"><span class="ico">👥</span>Usuarios</button>
+  <button class="nav-btn admin-only" data-page="admin-settings"><span class="ico">⚙️</span>Ajustes</button>
+  <div class="sidebar-bottom">
+    <button class="theme-toggle" onclick="toggleTheme()"><span id="themeIcon">🌙</span><span id="themeLabel">Modo claro</span></button>
+    <button class="logout-btn" onclick="doLogout()">🚪 Cerrar sesion</button>
+    <div class="sidebar-footer">
+      <div id="dbInfo">Cargando...</div>
+      <button class="btn btn-sm btn-ghost admin-only-inline" style="margin-top:6px;width:100%;display:none" onclick="compactarDb()">🗜️ Compactar DB</button>
+    </div>
+  </div>
+</aside>
+<main class="main">
+
+<!-- UPLOAD -->
+<div id="page-upload" class="page active">
+  <h2 style="margin-bottom:20px">Cargar Excel de movimientos</h2>
+  <div id="lastAnalysis"></div>
+  <div class="upload-zone" id="dropZone"><div class="icon">📁</div><h3>Arrastra tu archivo Excel aqui</h3><p>o haz clic para seleccionar (.xlsx)</p><input type="file" id="fileInput" accept=".xlsx,.xls"></div>
+  <div class="file-selected" id="fileSelected"><div class="file-icon">📄</div><div class="file-info"><div class="file-name" id="fileName"></div><div class="file-size" id="fileSize"></div></div><button class="btn btn-ghost btn-sm" onclick="clearFile()">✕</button></div>
+  <div style="display:flex;gap:12px;margin-top:16px;align-items:center">
+    <button class="btn btn-primary btn-lg" id="btnAnalizar" onclick="enviarAnalisis()">Analizar 📊</button>
+    <label style="font-size:.85rem;color:var(--text3);cursor:pointer">Mantenimiento: <input type="file" id="maintInput" accept=".xlsx,.xls" style="width:200px;font-size:.8rem"></label>
+  </div>
+  <div class="loader" id="uploadLoader"><div class="spinner"></div><p style="margin-top:12px;color:var(--text3)">Procesando...</p></div>
+  <div id="resultado" style="display:none"></div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="page-dashboard" class="page"><h2 style="margin-bottom:20px">Dashboard</h2><div id="dashContent"><p style="color:var(--text3)">Cargando...</p></div></div>
+
+<!-- OPERARIOS -->
+<div id="page-operarios" class="page"><h2 style="margin-bottom:20px">Operarios</h2>
+  <div class="filters"><input class="input" id="searchOps" placeholder="Buscar operario..." style="max-width:300px"></div>
+  <div id="opsTable"></div><div id="opDetail" style="display:none;margin-top:24px"></div>
+</div>
+
+<!-- CLIENTES -->
+<div id="page-clientes" class="page"><h2 style="margin-bottom:20px">Clientes</h2>
+  <div class="filters"><input class="input" id="searchCls" placeholder="Buscar cliente..." style="max-width:300px"></div>
+  <div id="clsTable"></div><div id="clDetail" style="display:none;margin-top:24px"></div>
+</div>
+
+<!-- HISTORIAL -->
+<div id="page-historial" class="page"><h2 style="margin-bottom:20px">Historial de analisis</h2><div id="historialList"></div></div>
+
+<!-- COMPARAR -->
+<div id="page-comparar" class="page"><h2 style="margin-bottom:20px">Comparar analisis</h2>
+  <div style="display:flex;gap:16px;align-items:end;flex-wrap:wrap">
+    <div><label style="font-size:.8rem;color:var(--text3)">Analisis A</label><select class="input" id="compareA"></select></div>
+    <div><label style="font-size:.8rem;color:var(--text3)">Analisis B</label><select class="input" id="compareB"></select></div>
+    <button class="btn btn-primary" onclick="doCompare()">Comparar</button>
+  </div><div id="compareResult"></div>
+</div>
+
+<!-- ADMIN USUARIOS -->
+<div id="page-admin-users" class="page">
+  <h2 style="margin-bottom:20px">👥 Gestion de Usuarios</h2>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Crear usuario</div>
+    <div class="admin-form">
+      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Usuario</label><input class="input" id="newUser" placeholder="usuario"></div>
+        <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="newNombre" placeholder="Nombre completo"></div></div>
+      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Contrasena</label><input class="input" id="newPass" type="text" placeholder="minimo 4 caracteres"></div>
+        <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="newRol"><option value="user">Usuario</option><option value="admin">Admin</option></select></div></div>
+      <button class="btn btn-success" onclick="crearUsuario()">Crear usuario</button>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">Usuarios existentes</div><div id="usersTable"></div></div>
+</div>
+
+<!-- ADMIN SETTINGS -->
+<div id="page-admin-settings" class="page">
+  <h2 style="margin-bottom:20px">⚙️ Ajustes de Analisis</h2>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Umbrales de anomalia (minutos)</div>
+    <p style="font-size:.85rem;color:var(--text3);margin-bottom:16px">Si el tiempo entre dos movimientos supera el umbral de "anomalia", se marca como anomalia.</p>
+    <div id="settingsUmbrales"></div>
+  </div>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Otros parametros</div>
+    <div class="setting-row"><label>Margen mantenimiento (min)</label><input type="number" id="setMargen" min="1" max="120"></div>
+    <div style="margin-top:16px">
+      <div class="card-title" style="font-size:.9rem">Pesos del score de riesgo</div>
+      <div class="setting-row"><label>Tasa anomalias (0-100)</label><input type="number" id="setRateW" min="0" max="100"></div>
+      <div class="setting-row"><label>Exceso promedio (0-100)</label><input type="number" id="setExcessW" min="0" max="100"></div>
+      <div class="setting-row"><label>Tendencia (0-100)</label><input type="number" id="setTrendW" min="0" max="100"></div>
+    </div>
+  </div>
+  <button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button>
+</div>
+
+</main>
+</div>
+
+<!-- MODAL EDITAR USUARIO -->
+<div class="modal-overlay" id="editUserModal">
+  <div class="modal">
+    <h3>Editar usuario</h3>
+    <input type="hidden" id="editUid">
+    <div style="display:grid;gap:12px">
+      <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="editNombre"></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="editRol"><option value="user">Usuario</option><option value="admin">Admin</option></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Nueva contrasena (dejar vacio para no cambiar)</label><input class="input" id="editPass" type="text" placeholder="****"></div>
+      <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
+        <button class="btn btn-primary" onclick="guardarEditUser()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const esc=s=>{if(s==null)return'';const d=document.createElement('div');d.textContent=String(s);return d.innerHTML};
+const API=(p,o)=>fetch('/api'+p,o).then(async r=>{
+  const text=await r.text();let data;
+  try{data=JSON.parse(text)}catch(e){throw new Error('Error servidor: '+text.substring(0,200))}
+  if(r.status===401&&data.code==='AUTH_REQUIRED'){showLogin();throw new Error('Sesion expirada')}
+  if(!r.ok)throw new Error(data.error||r.statusText);
+  return data;
+});
+function toast(msg,type='info',dur=4000){
+  const icons={success:'✅',error:'❌',warning:'⚠️',info:'ℹ️'};
+  const el=document.createElement('div');el.className='toast toast-'+type;
+  el.innerHTML=`<span>${icons[type]||''}</span><span>${esc(msg)}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(()=>{el.style.animation='toastOut .3s ease forwards';setTimeout(()=>el.remove(),300)},dur);
+}
+let charts=[];function clearCharts(){charts.forEach(c=>{try{c.destroy()}catch(e){}});charts=[];}
+function mkChart(id,cfg){if(typeof Chart==='undefined')return null;const c=new Chart(document.getElementById(id),cfg);charts.push(c);return c;}
+let debounceTimers={};function debounce(key,fn,ms){clearTimeout(debounceTimers[key]);debounceTimers[key]=setTimeout(fn,ms)}
+function fmtSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
+function riskBadge(s){return s>60?`<span class="badge badge-red">${esc(s)}</span>`:s>30?`<span class="badge badge-orange">${esc(s)}</span>`:`<span class="badge badge-green">${esc(s)}</span>`}
+function tendIcon(t){return t==='empeorando'?'📈🔴':t==='mejorando'?'📉🟢':'➡️'}
+
+// ============ AUTH ============
+let currentUser=null;
+
+async function checkAuth(){
+  try{
+    const r=await API('/auth/me');
+    if(r.authenticated){onLogin(r.user);return}
+  }catch(e){}
+  showLogin();
+}
+
+function showLogin(){
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('appShell').classList.remove('show');
+  currentUser=null;
+}
+
+function onLogin(user){
+  currentUser=user;
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('appShell').classList.add('show');
+  document.getElementById('userDisplay').textContent=user.nombre||user.username;
+  document.getElementById('roleDisplay').textContent=user.rol==='admin'?'Administrador':'Usuario';
+  // Show admin buttons
+  const isAdmin=user.rol==='admin';
+  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'flex':'none');
+  document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=isAdmin?'block':'none');
+  loadLastAnalysis();loadDbInfo();
+}
+
+async function doLogin(){
+  const user=document.getElementById('loginUser').value.trim();
+  const pass=document.getElementById('loginPass').value;
+  const errEl=document.getElementById('loginError');
+  errEl.textContent='';
+  if(!user||!pass){errEl.textContent='Introduce usuario y contrasena';return}
+  document.getElementById('loginBtn').disabled=true;
+  try{
+    const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
+    const data=await r.json();
+    if(!r.ok){errEl.textContent=data.error||'Error de login';return}
+    onLogin(data.user);
+    document.getElementById('loginPass').value='';
+  }catch(e){errEl.textContent='Error de conexion'}
+  finally{document.getElementById('loginBtn').disabled=false}
+}
+
+async function doLogout(){
+  try{await API('/auth/logout',{method:'POST'})}catch(e){}
+  showLogin();
+}
+
+document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus()});
+
+// ============ NAVIGATION ============
+document.querySelectorAll('.nav-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('page-'+btn.dataset.page).classList.add('active');
+    const pg=btn.dataset.page;
+    if(pg==='dashboard')loadDashboard();
+    if(pg==='operarios')searchOperarios();
+    if(pg==='clientes')searchClientes();
+    if(pg==='historial')loadHistorial();
+    if(pg==='comparar')loadCompareSelects();
+    if(pg==='admin-users')loadUsers();
+    if(pg==='admin-settings')loadSettings();
+  });
+});
+function goPage(pg){
+  document.querySelectorAll('.nav-btn').forEach(b=>{b.classList.remove('active');if(b.dataset.page===pg)b.classList.add('active')});
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+pg).classList.add('active');
+}
+
+// ============ THEME ============
+function toggleTheme(){
+  const h=document.documentElement;const isDark=h.getAttribute('data-theme')==='dark';
+  h.setAttribute('data-theme',isDark?'light':'dark');
+  document.getElementById('themeIcon').textContent=isDark?'☀️':'🌙';
+  document.getElementById('themeLabel').textContent=isDark?'Modo oscuro':'Modo claro';
+  localStorage.setItem('theme',isDark?'light':'dark');
+}
+if(localStorage.getItem('theme')==='light')toggleTheme();
+
+// ============ UPLOAD ============
+const dropZone=document.getElementById('dropZone'),fileInput=document.getElementById('fileInput'),fileSelected=document.getElementById('fileSelected');
+dropZone.addEventListener('click',()=>fileInput.click());
+dropZone.addEventListener('dragover',e=>{e.preventDefault();dropZone.classList.add('dragover')});
+dropZone.addEventListener('dragleave',()=>dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop',e=>{e.preventDefault();dropZone.classList.remove('dragover');if(e.dataTransfer.files.length){fileInput.files=e.dataTransfer.files;showFileSelected()}});
+fileInput.addEventListener('change',showFileSelected);
+function showFileSelected(){const f=fileInput.files[0];if(!f)return;document.getElementById('fileName').textContent=f.name;document.getElementById('fileSize').textContent=fmtSize(f.size);fileSelected.classList.add('show');dropZone.style.display='none'}
+function clearFile(){fileInput.value='';fileSelected.classList.remove('show');dropZone.style.display=''}
+document.getElementById('searchOps').addEventListener('input',()=>debounce('ops',searchOperarios,300));
+document.getElementById('searchCls').addEventListener('input',()=>debounce('cls',searchClientes,300));
+
+async function enviarAnalisis(){
+  const file=fileInput.files[0];if(!file)return;
+  const btn=document.getElementById('btnAnalizar');btn.disabled=true;btn.textContent='Analizando...';
+  const loader=document.getElementById('uploadLoader'),resultado=document.getElementById('resultado');
+  loader.classList.add('show');resultado.style.display='none';clearCharts();
+  const fd=new FormData();fd.append('movimientos',file);
+  const m=document.getElementById('maintInput').files[0];if(m)fd.append('mantenimiento',m);
+  try{
+    const data=await API('/analizar',{method:'POST',body:fd});
+    renderResultado(data);
+    toast(`Analisis completado - ${data.total_movimientos} mov, ${data.total_anomalias} anom`,'success');
+    if(data.alertas?.length>0)data.alertas.forEach(a=>toast(a.msg,a.nivel==='critical'?'error':'warning',6000));
+    clearFile();loadLastAnalysis();
+  }catch(err){toast(err.message,'error',6000);resultado.innerHTML=`<div class="alert alert-error">${esc(err.message)}</div>`;resultado.style.display='block'}
+  finally{loader.classList.remove('show');btn.disabled=false;btn.textContent='Analizar 📊'}
+}
+
+// ============ RENDER RESULTADO ============
+let _anomPageSize=50,_anomShowAll=false;
+
+function renderResultado(d){
+  const el=document.getElementById('resultado');clearCharts();
+  const timing=d.timing?`<span class="timing">⚡ ${d.timing.lectura_excel}s + ${d.timing.analisis}s + ${d.timing.guardado_db||0}s</span>`:'';
+  const exportBtn=d.id?`<button class="btn btn-sm btn-ghost" onclick="window.open('/api/exportar/${d.id}')">📥 Exportar</button>`:'';
+  const anomList=d.anomalias_detalle||d.anomalias||[];
+  const uOps=[...new Set((d.operarios||[]).map(o=>o.codigo))];
+  const uCls=[...new Set((d.clientes||[]).map(c=>c.nombre))];
+  const uTypes=[...new Set(anomList.map(a=>a.tipo_operacion))];
+
+  el.innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:12px"><span style="font-weight:600">📄 ${esc(d.archivo)}</span><span style="color:var(--text3);font-size:.85rem">${esc(d.fecha)}</span>${timing}</div>${exportBtn}
+    </div>
+    <div class="card-grid cols-4 section">
+      <div class="card kpi blue"><div class="value">${d.total_movimientos}</div><div class="label">Movimientos</div></div>
+      <div class="card kpi ${d.total_anomalias>10?'red':'orange'}"><div class="value">${d.total_anomalias}</div><div class="label">Anomalias</div></div>
+      <div class="card kpi green"><div class="value">${d.anomalias_justificadas||0}</div><div class="label">Justificadas</div></div>
+      <div class="card kpi purple"><div class="value">${d.tasa_anomalias_pct}%</div><div class="label">Tasa</div></div>
+    </div>
+    <div class="card section"><div class="card-title">👷 Operarios</div><div class="filters"><input class="input" placeholder="Filtrar..." id="fOp" oninput="applyFilters()"></div><div class="table-wrap" id="tblOps">${renderOpsTable(d.operarios)}</div></div>
+    <div class="card section"><div class="card-title">⚠️ Anomalias <span class="badge badge-gray">${anomList.length} total</span></div>
+      <div class="filters">
+        <select class="input" id="fAnOp" onchange="applyFilters()"><option value="">Todos operarios</option>${uOps.map(o=>`<option value="${esc(o)}">${esc(o)}</option>`).join('')}</select>
+        <select class="input" id="fAnCl" onchange="applyFilters()"><option value="">Todos clientes</option>${uCls.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>
+        <select class="input" id="fAnTp" onchange="applyFilters()"><option value="">Todos tipos</option>${uTypes.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('')}</select>
+      </div><div class="table-wrap" id="tblAnoms">${renderAnomTable(anomList)}</div>
+    </div>
+    <div class="card-grid cols-2 section">
+      <div class="card"><div class="card-title">🏢 Clientes</div><div class="table-wrap">${renderClsTable(d.clientes)}</div></div>
+      <div class="card"><div class="card-title">🕐 Anomalias por Franja</div><canvas id="chartPatrones" height="200"></canvas></div>
+    </div>`;
+  el.style.display='block';el._data=d;
+  const pat=d.patrones_hora||{};
+  if(Object.keys(pat).length>0){
+    const lm={antes_10h:'<10h','10h_14h':'10-14h','14h_18h':'14-18h',despues_18h:'>18h'};
+    mkChart('chartPatrones',{type:'bar',data:{labels:Object.keys(pat).map(k=>lm[k]||k),datasets:[{data:Object.values(pat),backgroundColor:'#3b82f6',borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{color:'#64748b'}},x:{ticks:{color:'#64748b'}}}}});
+  }
+}
+
+function applyFilters(){
+  const d=document.getElementById('resultado')._data;if(!d)return;
+  const fOp=(document.getElementById('fOp')?.value||'').toLowerCase();
+  document.getElementById('tblOps').innerHTML=renderOpsTable(fOp?d.operarios.filter(o=>(o.nombre||o.codigo).toLowerCase().includes(fOp)):d.operarios);
+  let anoms=d.anomalias_detalle||d.anomalias||[];
+  const fAnOp=document.getElementById('fAnOp')?.value;if(fAnOp)anoms=anoms.filter(a=>a.operario===fAnOp);
+  const fAnCl=document.getElementById('fAnCl')?.value;if(fAnCl)anoms=anoms.filter(a=>a.cliente===fAnCl);
+  const fAnTp=document.getElementById('fAnTp')?.value;if(fAnTp)anoms=anoms.filter(a=>a.tipo_operacion===fAnTp);
+  document.getElementById('tblAnoms').innerHTML=renderAnomTable(anoms);
+}
+
+function renderOpsTable(ops){
+  if(!ops?.length)return'<p style="color:var(--text3);padding:8px">Sin datos</p>';
+  return`<table><thead><tr><th>Operario</th><th class="text-right">Mov.</th><th class="text-right">Anom.</th><th class="text-right">T.Entre</th><th class="text-right">Unid.</th><th class="text-right">U/H</th><th class="text-center">Riesgo</th><th class="text-center">Tend.</th></tr></thead><tbody>${ops.map(o=>`<tr><td><strong>${esc(o.nombre||o.codigo)}</strong><br><span style="font-size:.75rem;color:var(--text3)">${esc(o.codigo)}</span></td><td class="text-right mono">${o.total_movimientos}</td><td class="text-right mono" style="color:${o.total_anomalias>0?'var(--red)':'var(--green)'}">${o.total_anomalias}</td><td class="text-right mono">${o.tiempo_promedio_entre}m</td><td class="text-right mono">${o.total_unidades}</td><td class="text-right mono" style="font-weight:600">${o.productividad}</td><td class="text-center">${riskBadge(o.score_riesgo)}</td><td class="text-center">${tendIcon(o.tendencia)}</td></tr>`).join('')}</tbody></table>`}
+
+function renderAnomTable(anoms){
+  if(!anoms?.length)return'<p style="color:var(--green);padding:8px">✅ Sin anomalias</p>';
+  const total=anoms.length,showing=_anomShowAll?anoms:anoms.slice(0,_anomPageSize),more=total-_anomPageSize;
+  let h=`<table><thead><tr><th>Operario</th><th class="text-right">Exceso</th><th class="text-right">Tiempo</th><th>Umbral</th><th>Cliente</th><th>Tipo</th><th>Hora</th></tr></thead><tbody>${showing.map(a=>`<tr><td>${esc(a.operario_nombre||a.operario)}</td><td class="text-right mono" style="color:var(--red);font-weight:700">+${a.exceso}m</td><td class="text-right mono">${a.tiempo_entre}m</td><td><span class="badge badge-${(a.umbral_tipo||'fijo')==='dinamico'?'blue':'gray'}">${esc(a.umbral_tipo||'fijo')}</span></td><td>${esc(a.cliente||'-')}</td><td>${esc(a.tipo_operacion||'-')}</td><td class="mono" style="font-size:.8rem">${esc((a.fecha_fin_n||'').slice(-5))}</td></tr>`).join('')}</tbody></table>`;
+  if(!_anomShowAll&&more>0)h+=`<div class="show-more-row"><button onclick="_anomShowAll=true;applyFilters()">Mostrar ${more} mas</button></div>`;
+  else if(_anomShowAll&&total>_anomPageSize)h+=`<div class="show-more-row"><button onclick="_anomShowAll=false;applyFilters()">Mostrar solo ${_anomPageSize}</button></div>`;
+  return h;
+}
+
+function renderClsTable(cls){
+  if(!cls?.length)return'<p style="color:var(--text3)">Sin datos</p>';
+  return`<table><thead><tr><th>Cliente</th><th class="text-right">Mov.</th><th class="text-right">Unid.</th><th class="text-right">U/H</th></tr></thead><tbody>${cls.map(c=>`<tr><td>${esc(c.nombre)}</td><td class="text-right mono">${c.total_movimientos}</td><td class="text-right mono">${c.total_unidades}</td><td class="text-right mono" style="font-weight:600">${c.productividad}</td></tr>`).join('')}</tbody></table>`}
+
+// ============ LAST / VIEW / HISTORY ============
+async function loadLastAnalysis(){try{const u=await API('/ultimo');const el=document.getElementById('lastAnalysis');if(!u?.id){el.style.display='none';return}el.style.display='flex';el.innerHTML=`<div class="la-icon">📋</div><div class="la-info"><div class="la-title">${esc(u.archivo)}</div><div class="la-meta"><span>${esc((u.fecha||'').split(' ')[0])}</span><span>📦 ${u.total_movimientos}</span><span style="color:${u.total_anomalias>0?'var(--red)':'var(--green)'}">⚠️ ${u.total_anomalias}</span></div></div><div class="la-arrow">→</div>`;el.onclick=()=>viewAnalisis(u.id)}catch(e){}}
+
+async function viewAnalisis(id){goPage('upload');const loader=document.getElementById('uploadLoader'),el=document.getElementById('resultado');loader.classList.add('show');el.style.display='none';clearCharts();_anomShowAll=false;try{const d=await API('/analisis/'+id);d.anomalias_detalle=d.anomalias||[];if(!d.patrones_hora)d.patrones_hora={};renderResultado(d)}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`;el.style.display='block'}finally{loader.classList.remove('show')}}
+
+async function deleteAnalisis(id){if(!confirm('Eliminar?'))return;try{await API('/analisis/'+id,{method:'DELETE'});toast('Eliminado','success');loadHistorial();loadLastAnalysis()}catch(e){toast(e.message,'error')}}
+
+async function loadHistorial(){const el=document.getElementById('historialList');el.innerHTML='<div class="loader show"><div class="spinner"></div></div>';try{const list=await API('/analisis');if(!list.length){el.innerHTML='<p style="padding:24px;color:var(--text3)">Sin analisis</p>';return}el.innerHTML=list.map(a=>`<div class="history-item" onclick="viewAnalisis(${a.id})"><div><strong>${esc(a.archivo||'Analisis')}</strong><div style="font-size:.8rem;color:var(--text3)">${esc(a.fecha)}</div></div><div class="meta"><span>📦 ${a.total_movimientos}</span><span style="color:${a.total_anomalias>0?'var(--red)':'var(--green)'}">⚠️ ${a.total_anomalias}</span><span>${a.tasa_anomalias_pct}%</span><button class="btn btn-sm btn-ghost" onclick="event.stopPropagation();window.open('/api/exportar/${a.id}')">📥</button><button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteAnalisis(${a.id})">🗑️</button></div></div>`).join('')}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`}}
+
+// ============ DASHBOARD ============
+async function loadDashboard(){const el=document.getElementById('dashContent');clearCharts();try{const d=await API('/dashboard');const g=d.global||{};el.innerHTML=`<div class="card-grid cols-4 section"><div class="card kpi blue"><div class="value">${g.total_analisis||0}</div><div class="label">Analisis</div></div><div class="card kpi"><div class="value">${g.avg_mov||0}</div><div class="label">Media Mov/Dia</div></div><div class="card kpi orange"><div class="value">${g.avg_anom||0}</div><div class="label">Media Anom/Dia</div></div><div class="card kpi ${g.avg_tasa>5?'red':'green'}"><div class="value">${g.avg_tasa||0}%</div><div class="label">Tasa</div></div></div>${d.tendencia?.length>1?`<div class="card section"><div class="card-title">📈 Tendencia</div><div class="chart-container"><canvas id="chartTend"></canvas></div></div>`:''}<div class="card-grid cols-2 section"><div class="card"><div class="card-title">🏆 Top Operarios</div><div class="table-wrap">${d.top_operarios?.length?`<table><thead><tr><th>Operario</th><th class="text-right">U/H</th><th class="text-right">Riesgo</th></tr></thead><tbody>${d.top_operarios.map(o=>`<tr><td><a href="#" onclick="viewOperario('${esc(o.codigo)}');return false">${esc(o.nombre||o.codigo)}</a></td><td class="text-right mono">${o.prod_avg}</td><td class="text-right">${riskBadge(o.riesgo_avg)}</td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text3)">Sin datos</p>'}</div></div><div class="card"><div class="card-title">🏢 Top Clientes</div><div class="table-wrap">${d.top_clientes?.length?`<table><thead><tr><th>Cliente</th><th class="text-right">U/H</th><th class="text-right">Unid.</th></tr></thead><tbody>${d.top_clientes.map(c=>`<tr><td><a href="#" onclick="viewCliente('${encodeURIComponent(c.nombre)}');return false">${esc(c.nombre)}</a></td><td class="text-right mono">${c.prod_avg}</td><td class="text-right mono">${(c.unidades_total||0).toLocaleString()}</td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text3)">Sin datos</p>'}</div></div></div>`;if(d.tendencia?.length>1){const t=d.tendencia.slice().reverse();mkChart('chartTend',{type:'line',data:{labels:t.map(r=>(r.fecha||'').split(' ')[0]),datasets:[{label:'Anomalias',data:t.map(r=>r.total_anomalias),borderColor:'#ef4444',backgroundColor:'rgba(239,68,68,.1)',fill:true,tension:.3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94a3b8'}}},scales:{y:{beginAtZero:true,ticks:{color:'#64748b'}},x:{ticks:{color:'#64748b',maxRotation:45}}}}})}}catch(err){el.innerHTML=`<div class="alert alert-error">${esc(err.message)}</div>`}}
+
+// ============ OPERARIOS / CLIENTES ============
+function searchOperarios(){const q=document.getElementById('searchOps').value;API('/operarios?q='+encodeURIComponent(q)).then(ops=>{document.getElementById('opsTable').innerHTML=ops.length?`<table><thead><tr><th>Codigo</th><th>Nombre</th><th class="text-right">Prod.</th><th class="text-right">Anom.</th><th class="text-right">Riesgo</th><th class="text-right">Dias</th><th></th></tr></thead><tbody>${ops.map(o=>`<tr><td class="mono">${esc(o.codigo)}</td><td>${esc(o.nombre)}</td><td class="text-right mono">${o.prod_avg}</td><td class="text-right mono">${o.anom_avg}</td><td class="text-right">${riskBadge(o.riesgo_avg)}</td><td class="text-right">${o.dias}</td><td><button class="btn btn-sm btn-ghost" onclick="viewOperario('${esc(o.codigo)}')">→</button></td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text3);padding:16px">Sin operarios</p>'}).catch(e=>{})}
+
+async function viewOperario(c){goPage('operarios');const el=document.getElementById('opDetail');el.style.display='block';el.innerHTML='<div class="loader show"><div class="spinner"></div></div>';clearCharts();try{const h=await API('/operarios/'+encodeURIComponent(c)+'/historico');if(!h.length){el.innerHTML='<p style="color:var(--text3)">Sin datos</p>';return}el.innerHTML=`<div class="card section"><div class="card-title">📊 ${esc(h[0].nombre||c)}</div><div class="chart-container"><canvas id="chartOpH"></canvas></div></div><div class="card"><div class="table-wrap"><table><thead><tr><th>Fecha</th><th class="text-right">Mov.</th><th class="text-right">Anom.</th><th class="text-right">U/H</th><th class="text-center">Riesgo</th></tr></thead><tbody>${h.map(r=>`<tr><td class="mono">${esc((r.fecha||'').split(' ')[0])}</td><td class="text-right mono">${r.total_movimientos}</td><td class="text-right mono">${r.total_anomalias}</td><td class="text-right mono">${r.productividad}</td><td class="text-center">${riskBadge(r.score_riesgo)}</td></tr>`).join('')}</tbody></table></div></div>`;const rev=h.slice().reverse();mkChart('chartOpH',{type:'line',data:{labels:rev.map(r=>(r.fecha||'').split(' ')[0]),datasets:[{label:'U/H',data:rev.map(r=>r.productividad),borderColor:'#22c55e',tension:.3,yAxisID:'y'},{label:'Anom',data:rev.map(r=>r.total_anomalias),borderColor:'#ef4444',tension:.3,yAxisID:'y1'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,position:'left',ticks:{color:'#22c55e'}},y1:{beginAtZero:true,position:'right',ticks:{color:'#ef4444'},grid:{display:false}},x:{ticks:{color:'#64748b'}}}}})}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`}}
+
+function searchClientes(){const q=document.getElementById('searchCls').value;API('/clientes?q='+encodeURIComponent(q)).then(cls=>{document.getElementById('clsTable').innerHTML=cls.length?`<table><thead><tr><th>Cliente</th><th class="text-right">Prod.</th><th class="text-right">Mov.</th><th class="text-right">Unid.</th><th class="text-right">Dias</th><th></th></tr></thead><tbody>${cls.map(c=>`<tr><td>${esc(c.nombre)}</td><td class="text-right mono">${c.prod_avg}</td><td class="text-right mono">${c.mov_avg}</td><td class="text-right mono">${(c.unidades_total||0).toLocaleString()}</td><td class="text-right">${c.dias}</td><td><button class="btn btn-sm btn-ghost" onclick="viewCliente('${encodeURIComponent(c.nombre)}')">→</button></td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text3);padding:16px">Sin clientes</p>'}).catch(e=>{})}
+
+async function viewCliente(n){goPage('clientes');const el=document.getElementById('clDetail');el.style.display='block';el.innerHTML='<div class="loader show"><div class="spinner"></div></div>';clearCharts();try{const h=await API('/clientes/'+n+'/historico');if(!h.length){el.innerHTML='<p style="color:var(--text3)">Sin datos</p>';return}el.innerHTML=`<div class="card section"><div class="card-title">📊 ${esc(decodeURIComponent(n))}</div><div class="chart-container"><canvas id="chartClH"></canvas></div></div><div class="card"><div class="table-wrap"><table><thead><tr><th>Fecha</th><th class="text-right">Mov.</th><th class="text-right">Unid.</th><th class="text-right">U/H</th></tr></thead><tbody>${h.map(r=>`<tr><td class="mono">${esc((r.fecha||'').split(' ')[0])}</td><td class="text-right mono">${r.total_movimientos}</td><td class="text-right mono">${r.total_unidades}</td><td class="text-right mono">${r.productividad}</td></tr>`).join('')}</tbody></table></div></div>`;const rev=h.slice().reverse();mkChart('chartClH',{type:'bar',data:{labels:rev.map(r=>(r.fecha||'').split(' ')[0]),datasets:[{label:'Unidades',data:rev.map(r=>r.total_unidades),backgroundColor:'#3b82f6',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true,ticks:{color:'#64748b'}},x:{ticks:{color:'#64748b'}}}}})}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`}}
+
+// ============ COMPARAR ============
+async function loadCompareSelects(){try{const list=await API('/analisis');const h=list.map(a=>`<option value="${a.id}">${esc((a.fecha||'').split(' ')[0])} - ${esc(a.archivo)} (${a.total_movimientos})</option>`).join('');document.getElementById('compareA').innerHTML='<option value="">Seleccionar...</option>'+h;document.getElementById('compareB').innerHTML='<option value="">Seleccionar...</option>'+h}catch(e){}}
+
+async function doCompare(){const idA=document.getElementById('compareA').value,idB=document.getElementById('compareB').value;if(!idA||!idB||idA===idB){toast('Selecciona dos diferentes','warning');return}const el=document.getElementById('compareResult');el.innerHTML='<div class="loader show"><div class="spinner"></div></div>';clearCharts();try{const d=await API(`/comparar/${idA}/${idB}`);const a=d.a,b=d.b;const allCodes=[...new Set([...(a.operarios||[]).map(o=>o.codigo),...(b.operarios||[]).map(o=>o.codigo)])];const mA=Object.fromEntries((a.operarios||[]).map(o=>[o.codigo,o]));const mB=Object.fromEntries((b.operarios||[]).map(o=>[o.codigo,o]));el.innerHTML=`<div class="card section"><div class="card-title">📊 Resumen</div><table><thead><tr><th>Metrica</th><th class="text-right">A</th><th class="text-right">B</th></tr></thead><tbody><tr><td>Movimientos</td><td class="text-right mono">${a.total_movimientos}</td><td class="text-right mono">${b.total_movimientos}</td></tr><tr><td>Anomalias</td><td class="text-right mono">${a.total_anomalias}</td><td class="text-right mono">${b.total_anomalias}</td></tr><tr><td>Tasa</td><td class="text-right mono">${a.tasa_anomalias_pct}%</td><td class="text-right mono">${b.tasa_anomalias_pct}%</td></tr></tbody></table></div><div class="card section"><div class="card-title">📊 Visual</div><div class="chart-container"><canvas id="chartCompare"></canvas></div></div>`;mkChart('chartCompare',{type:'bar',data:{labels:allCodes.map(c=>esc((mA[c]||mB[c])?.nombre||c)),datasets:[{label:'A: Anom',data:allCodes.map(c=>mA[c]?.total_anomalias||0),backgroundColor:'rgba(239,68,68,.6)'},{label:'B: Anom',data:allCodes.map(c=>mB[c]?.total_anomalias||0),backgroundColor:'rgba(59,130,246,.6)'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true},x:{ticks:{color:'#64748b'}}}}})}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`}}
+
+// ============ ADMIN: USERS ============
+async function loadUsers(){try{const users=await API('/admin/usuarios');document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th class="text-center">Rol</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td class="text-center"><span class="badge ${u.rol==='admin'?'badge-purple':'badge-blue'}">${esc(u.rol)}</span></td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`}catch(e){toast(e.message,'error')}}
+
+async function crearUsuario(){
+  const u=document.getElementById('newUser').value.trim(),p=document.getElementById('newPass').value;
+  const n=document.getElementById('newNombre').value.trim(),r=document.getElementById('newRol').value;
+  if(!u||!p){toast('Usuario y contrasena requeridos','warning');return}
+  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,rol:r})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
+}
+
+function openEditModal(uid){
+  API('/admin/usuarios').then(users=>{
+    const u=users.find(x=>x.id===uid);if(!u)return;
+    document.getElementById('editUid').value=uid;
+    document.getElementById('editNombre').value=u.nombre||'';
+    document.getElementById('editRol').value=u.rol;
+    document.getElementById('editPass').value='';
+    document.getElementById('editUserModal').classList.add('show');
+  });
+}
+function closeEditModal(){document.getElementById('editUserModal').classList.remove('show')}
+
+async function guardarEditUser(){
+  const uid=document.getElementById('editUid').value;
+  const data={nombre:document.getElementById('editNombre').value,rol:document.getElementById('editRol').value};
+  const pw=document.getElementById('editPass').value;if(pw)data.password=pw;
+  try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Usuario actualizado','success');closeEditModal();loadUsers()}catch(e){toast(e.message,'error')}
+}
+
+async function deactivateUser(uid,name){if(!confirm(`Desactivar a "${name}"?`))return;try{await API('/admin/usuarios/'+uid,{method:'DELETE'});toast('Usuario desactivado','success');loadUsers()}catch(e){toast(e.message,'error')}}
+
+async function reactivateUser(uid){try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo:true})});toast('Usuario reactivado','success');loadUsers()}catch(e){toast(e.message,'error')}}
+
+// ============ ADMIN: SETTINGS ============
+async function loadSettings(){
+  try{
+    const s=await API('/admin/settings');
+    const u=s.umbrales||{};
+    let html='';
+    for(const[tipo,vals] of Object.entries(u)){
+      html+=`<div class="setting-row"><label style="min-width:100px;font-weight:600">${esc(tipo)}</label>
+        <label>Normal</label><input type="number" id="umb_${tipo}_normal" value="${vals.normal}" step="0.5" min="0">
+        <label>Anomalia</label><input type="number" id="umb_${tipo}_anomalia" value="${vals.anomalia}" step="0.5" min="0">
+      </div>`;
+    }
+    document.getElementById('settingsUmbrales').innerHTML=html;
+    document.getElementById('setMargen').value=s.margen_mantenimiento||30;
+    const w=s.score_weights||{};
+    document.getElementById('setRateW').value=w.rate_w||50;
+    document.getElementById('setExcessW').value=w.excess_w||30;
+    document.getElementById('setTrendW').value=w.trend_w||20;
+  }catch(e){toast(e.message,'error')}
+}
+
+async function guardarSettings(){
+  const inputs=document.querySelectorAll('[id^="umb_"]');
+  const umbrales={};
+  inputs.forEach(inp=>{
+    const parts=inp.id.replace('umb_','').split('_');
+    const tipo=parts.slice(0,-1).join('_'),campo=parts[parts.length-1];
+    if(!umbrales[tipo])umbrales[tipo]={};
+    umbrales[tipo][campo]=parseFloat(inp.value)||0;
+  });
+  const data={
+    umbrales,
+    margen_mantenimiento:parseInt(document.getElementById('setMargen').value)||30,
+    score_weights:{
+      rate_w:parseInt(document.getElementById('setRateW').value)||50,
+      excess_w:parseInt(document.getElementById('setExcessW').value)||30,
+      trend_w:parseInt(document.getElementById('setTrendW').value)||20,
+    }
+  };
+  try{await API('/admin/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Ajustes guardados','success')}catch(e){toast(e.message,'error')}
+}
+
+// ============ DB / COMPACT ============
+async function loadDbInfo(){try{const d=await API('/db');document.getElementById('dbInfo').innerHTML=`💾 ${d.size_mb} MB · ${d.registros?.analisis||0} analisis`}catch(e){}}
+async function compactarDb(){try{toast('Compactando...','info');const r=await API('/db/compactar',{method:'POST'});toast(`${r.size_before_mb}→${r.size_after_mb} MB`,'success');loadDbInfo()}catch(e){toast(e.message,'error')}}
+
+// ============ INIT ============
+checkAuth();
+</script>
+</body>
+</html>
