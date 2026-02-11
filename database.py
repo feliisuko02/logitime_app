@@ -39,6 +39,7 @@ DEFAULT_PERMISOS = {
     "comparar": True,
     "manage_users": False,
     "manage_settings": False,
+    "manage_warehouses": False,
 }
 DEFAULT_ALMACEN = "Almacen Principal"
 
@@ -186,7 +187,7 @@ def _seed_admin(conn):
         conn.execute(
             "INSERT INTO usuarios (username,password_hash,nombre,rol,almacen_id,permisos) VALUES (?,?,?,?,?,?)",
             ("admin", generate_password_hash("admin123"), "Administrador", "superadmin", almacen_id,
-             json.dumps({**DEFAULT_PERMISOS, "manage_users": True, "manage_settings": True})))
+             json.dumps({**DEFAULT_PERMISOS, "manage_users": True, "manage_settings": True, "manage_warehouses": True})))
 
 def _seed_proveedores(conn):
     for n in ["Proveedor General"]:
@@ -211,15 +212,8 @@ def _parse_json(raw, fallback):
     except Exception:
         return copy.deepcopy(fallback)
 
-def _default_permisos_by_role(rol):
+def _normalize_permisos(permisos):
     base = copy.deepcopy(DEFAULT_PERMISOS)
-    if rol in ("admin", "superadmin"):
-        base["manage_users"] = True
-        base["manage_settings"] = True
-    return base
-
-def _normalize_permisos(permisos, rol):
-    base = _default_permisos_by_role(rol)
     if isinstance(permisos, dict):
         for k in base.keys():
             if k in permisos:
@@ -237,7 +231,7 @@ def _sanitize_proveedores(proveedores):
 
 def _row_user_public(row):
     d = dict(row)
-    d["permisos"] = _normalize_permisos(_parse_json(d.get("permisos"), {}), d.get("rol", "user"))
+    d["permisos"] = _normalize_permisos(_parse_json(d.get("permisos"), {}))
     d["proveedores"] = _sanitize_proveedores(_parse_json(d.get("proveedores"), []))
     return d
 
@@ -315,16 +309,14 @@ def autenticar(username, password):
                     "proveedores": u.get("proveedores", [])}
     return None
 
-def crear_usuario(username, password, nombre="", rol="user", almacen_id=None, permisos=None, proveedores=None):
-    if rol not in ("superadmin", "admin", "user"):
-        raise ValueError("Rol invalido")
-    permisos_n = _normalize_permisos(permisos, rol)
+def crear_usuario(username, password, nombre="", almacen_id=None, permisos=None, proveedores=None):
+    permisos_n = _normalize_permisos(permisos)
     proveedores_n = _sanitize_proveedores(proveedores or [])
     with get_db() as conn:
         try:
             cur = conn.execute(
                 "INSERT INTO usuarios (username,password_hash,nombre,rol,almacen_id,permisos,proveedores) VALUES (?,?,?,?,?,?,?)",
-                (username, generate_password_hash(password), nombre, rol, almacen_id,
+                (username, generate_password_hash(password), nombre, "user", almacen_id,
                  json.dumps(permisos_n, ensure_ascii=False), json.dumps(proveedores_n, ensure_ascii=False)))
             return cur.lastrowid
         except sqlite3.IntegrityError:
@@ -349,17 +341,16 @@ def obtener_usuario(uid):
 
 def actualizar_usuario(uid, **campos):
     with get_db() as conn:
-        existing = conn.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()
+        existing = conn.execute("SELECT id FROM usuarios WHERE id=?", (uid,)).fetchone()
         if not existing:
             return
-        target_role = campos.get("rol", existing["rol"])
         if "password" in campos and campos["password"]:
             conn.execute("UPDATE usuarios SET password_hash=? WHERE id=?",
                          (generate_password_hash(campos.pop("password")), uid))
-        allowed = {"nombre", "rol", "activo", "almacen_id"}
+        allowed = {"nombre", "activo", "almacen_id"}
         updates = {k: v for k, v in campos.items() if k in allowed}
         if "permisos" in campos:
-            updates["permisos"] = json.dumps(_normalize_permisos(campos["permisos"], target_role), ensure_ascii=False)
+            updates["permisos"] = json.dumps(_normalize_permisos(campos["permisos"]), ensure_ascii=False)
         if "proveedores" in campos:
             updates["proveedores"] = json.dumps(_sanitize_proveedores(campos["proveedores"]), ensure_ascii=False)
         if updates:

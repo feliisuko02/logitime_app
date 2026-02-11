@@ -33,7 +33,10 @@ def main() -> int:
         assert_ok(r.status_code == 200, f"Login falló: {r.status_code} {r.get_data(as_text=True)}")
         data = r.get_json() or {}
         user = data.get("user") or {}
-        assert_ok(user.get("rol") == "superadmin", f"Rol esperado superadmin, recibido: {user.get('rol')}")
+        permisos = user.get("permisos") or {}
+        assert_ok(permisos.get("manage_users") is True, "Admin seed sin manage_users")
+        assert_ok(permisos.get("manage_settings") is True, "Admin seed sin manage_settings")
+        assert_ok(permisos.get("manage_warehouses") is True, "Admin seed sin manage_warehouses")
 
         # 2) Contexto admin
         r = c.get("/api/admin/context")
@@ -80,7 +83,6 @@ def main() -> int:
             "username": "usuario_qa",
             "password": "qa1234",
             "nombre": "Usuario QA",
-            "rol": "user",
             "almacen_id": almacen_qa.get("id"),
             "proveedores": ["Proveedor QA"],
             "permisos": {

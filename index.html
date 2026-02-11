@@ -259,8 +259,7 @@ select.input{cursor:pointer}
     <div class="admin-form">
       <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Usuario</label><input class="input" id="newUser" placeholder="usuario"></div>
         <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="newNombre" placeholder="Nombre completo"></div></div>
-      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Contrasena</label><input class="input" id="newPass" type="text" placeholder="minimo 4 caracteres"></div>
-        <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="newRol"><option value="user">Usuario</option><option value="admin">Admin almacen</option><option value="superadmin">Superadmin</option></select></div></div>
+      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Contrasena</label><input class="input" id="newPass" type="text" placeholder="minimo 4 caracteres"></div></div>
       <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Almacen</label><select class="input" id="newAlmacen"></select></div><div><label style="font-size:.8rem;color:var(--text3)">Proveedores permitidos</label><select class="input" id="newProveedores" multiple size="4"></select></div></div>
       <div><label style="font-size:.8rem;color:var(--text3)">Permisos</label><div id="newPermisos" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px"></div></div>
       <button class="btn btn-success" onclick="crearUsuario()">Crear usuario</button>
@@ -315,7 +314,6 @@ select.input{cursor:pointer}
     <input type="hidden" id="editUid">
     <div style="display:grid;gap:12px">
       <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="editNombre"></div>
-      <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="editRol"><option value="user">Usuario</option><option value="admin">Admin almacen</option><option value="superadmin">Superadmin</option></select></div>
       <div><label style="font-size:.8rem;color:var(--text3)">Almacen</label><select class="input" id="editAlmacen"></select></div>
       <div><label style="font-size:.8rem;color:var(--text3)">Proveedores permitidos</label><select class="input" id="editProveedores" multiple size="4"></select></div>
       <div><label style="font-size:.8rem;color:var(--text3)">Permisos</label><div id="editPermisos" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px"></div></div>
@@ -353,8 +351,8 @@ function tendIcon(t){return t==='empeorando'?'📈🔴':t==='mejorando'?'📉�
 
 // ============ AUTH ============
 let currentUser=null;
-let adminContext={almacenes:[],proveedores:[],is_superadmin:false};
-const PERMISOS_LABELS={analizar:"Analizar",dashboard:"Dashboard",operarios:"Operarios",clientes:"Clientes",historial:"Historial",comparar:"Comparar",manage_users:"Gestion usuarios",manage_settings:"Ajustes"};
+let adminContext={almacenes:[],proveedores:[],can_manage_warehouses:false};
+const PERMISOS_LABELS={analizar:"Analizar",dashboard:"Dashboard",operarios:"Operarios",clientes:"Clientes",historial:"Historial",comparar:"Comparar",manage_users:"Gestion usuarios",manage_settings:"Ajustes",manage_warehouses:"Gestion almacenes"};
 
 async function checkAuth(){
   try{
@@ -375,15 +373,13 @@ function onLogin(user){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appShell').classList.add('show');
   document.getElementById('userDisplay').textContent=user.nombre||user.username;
-  document.getElementById('roleDisplay').textContent=user.rol==='superadmin'?'Superadministrador':(user.rol==='admin'?'Admin almacen':'Usuario');
-  // Show admin buttons
-  const isAdmin=(user.rol==='admin'||user.rol==='superadmin');
-  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'flex':'none');
-  document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=isAdmin?'block':'none');
-  const isSuperAdmin=(user.rol==='superadmin');
-  document.querySelectorAll('.superadmin-only').forEach(el=>el.style.display=isSuperAdmin?'flex':'none');
+  const perms=user.permisos||{};
+  document.getElementById('roleDisplay').textContent='Permisos personalizados';
+  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=perms.manage_users?'flex':'none');
+  document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=perms.manage_settings?'block':'none');
+  document.querySelectorAll('.superadmin-only').forEach(el=>el.style.display=perms.manage_warehouses?'flex':'none');
   loadLastAnalysis();loadDbInfo();
-  if(user.rol==='admin'||user.rol==='superadmin')loadAdminContext();
+  if(perms.manage_users||perms.manage_settings||perms.manage_warehouses)loadAdminContext();
 }
 
 async function doLogin(){
@@ -599,20 +595,26 @@ function fillAdminSelects(){
   ['newAlmacen','editAlmacen'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=almacenes});
   ['newProveedores','editProveedores'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=proveedores});
   fillPermisos('newPermisos',{analizar:true,dashboard:true,operarios:true,clientes:true,historial:true,comparar:true});
-  if(!adminContext.is_superadmin){['newRol','editRol'].forEach(id=>{const opt=document.querySelector(`#${id} option[value="superadmin"]`);if(opt)opt.remove();});}
 }
 
 // ============ ADMIN: USERS ============
-async function loadUsers(){try{const users=await API('/admin/usuarios');const almMap=Object.fromEntries((adminContext.almacenes||[]).map(a=>[a.id,a.nombre]));document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th>Almacen</th><th class="text-center">Rol</th><th>Proveedores</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td>${esc(almMap[u.almacen_id]||'-')}</td><td class="text-center"><span class="badge ${u.rol==='superadmin'?'badge-purple':(u.rol==='admin'?'badge-blue':'badge-gray')}">${esc(u.rol)}</span></td><td style="font-size:.75rem">${esc((u.proveedores||[]).join(', '))}</td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`}catch(e){toast(e.message,'error')}}
+async function loadUsers(){
+  try{
+    const users=await API('/admin/usuarios');
+    const almMap=Object.fromEntries((adminContext.almacenes||[]).map(a=>[a.id,a.nombre]));
+    document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th>Almacen</th><th>Proveedores</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td>${esc(almMap[u.almacen_id]||'-')}</td><td style="font-size:.75rem">${esc((u.proveedores||[]).join(', '))}</td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`
+  }catch(e){toast(e.message,'error')}
+}
+
 
 async function crearUsuario(){
   const u=document.getElementById('newUser').value.trim(),p=document.getElementById('newPass').value;
-  const n=document.getElementById('newNombre').value.trim(),r=document.getElementById('newRol').value;
+  const n=document.getElementById('newNombre').value.trim();
   const almac=document.getElementById('newAlmacen').value;
   const proveedores=selectedValues('newProveedores');
   const permisos=getPermisos('newPermisos');
   if(!u||!p){toast('Usuario y contrasena requeridos','warning');return}
-  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,rol:r,almacen_id:parseInt(almac)||null,proveedores,permisos})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
+  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,almacen_id:parseInt(almac)||null,proveedores,permisos})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
 }
 
 function openEditModal(uid){
@@ -620,7 +622,6 @@ function openEditModal(uid){
     const u=users.find(x=>x.id===uid);if(!u)return;
     document.getElementById('editUid').value=uid;
     document.getElementById('editNombre').value=u.nombre||'';
-    document.getElementById('editRol').value=u.rol;
     document.getElementById('editAlmacen').value=u.almacen_id||'';
     fillPermisos('editPermisos',u.permisos||{});
     Array.from(document.getElementById('editProveedores').options).forEach(op=>op.selected=(u.proveedores||[]).includes(op.value));
@@ -632,7 +633,7 @@ function closeEditModal(){document.getElementById('editUserModal').classList.rem
 
 async function guardarEditUser(){
   const uid=document.getElementById('editUid').value;
-  const data={nombre:document.getElementById('editNombre').value,rol:document.getElementById('editRol').value,almacen_id:parseInt(document.getElementById('editAlmacen').value)||null,proveedores:selectedValues('editProveedores'),permisos:getPermisos('editPermisos')};
+  const data={nombre:document.getElementById('editNombre').value,almacen_id:parseInt(document.getElementById('editAlmacen').value)||null,proveedores:selectedValues('editProveedores'),permisos:getPermisos('editPermisos')};
   const pw=document.getElementById('editPass').value;if(pw)data.password=pw;
   try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Usuario actualizado','success');closeEditModal();loadUsers()}catch(e){toast(e.message,'error')}
 }
@@ -643,7 +644,7 @@ async function reactivateUser(uid){try{await API('/admin/usuarios/'+uid,{method:
 
 // ============ ADMIN: WAREHOUSES ============
 async function loadWarehouses(){
-  if(!currentUser||currentUser.rol!=='superadmin'){
+  if(!currentUser||!currentUser.permisos||!currentUser.permisos.manage_warehouses){
     document.getElementById('warehousesTable').innerHTML='<p style="color:var(--text3)">Solo disponible para superadmin.</p>';
     return;
   }

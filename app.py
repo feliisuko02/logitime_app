@@ -67,28 +67,8 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated
 
-def admin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return jsonify({"error": "No autenticado", "code": "AUTH_REQUIRED"}), 401
-        if session.get("rol") not in ("admin", "superadmin"):
-            return jsonify({"error": "Acceso denegado: se requiere rol admin"}), 403
-        return f(*args, **kwargs)
-    return decorated
-
 def _uid():
     return session.get("user_id")
-
-def superadmin_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return jsonify({"error": "No autenticado", "code": "AUTH_REQUIRED"}), 401
-        if session.get("rol") != "superadmin":
-            return jsonify({"error": "Acceso denegado: se requiere rol superadmin"}), 403
-        return f(*args, **kwargs)
-    return decorated
 
 def permiso_required(nombre):
     def outer(f):
@@ -102,14 +82,8 @@ def permiso_required(nombre):
         return decorated
     return outer
 
-def _rol():
-    return session.get("rol", "user")
-
-def _is_superadmin():
-    return _rol() == "superadmin"
-
 def _is_admin():
-    return _rol() == "superadmin"
+    return _can("manage_warehouses")
 
 def _almacen_id():
     return session.get("almacen_id")
@@ -118,7 +92,10 @@ def _permisos():
     return session.get("permisos") or {}
 
 def _can(permiso):
-    return bool(_permisos().get(permiso, False)) or _is_admin()
+    return bool(_permisos().get(permiso, False))
+
+def _can_any(*permisos):
+    return any(_can(p) for p in permisos)
 
 
 # ── Paginas estaticas ──
@@ -143,7 +120,7 @@ def api_login():
     session["user_id"] = user["id"]
     session["username"] = user["username"]
     session["nombre"] = user["nombre"]
-    session["rol"] = user["rol"]
+    session["rol"] = user.get("rol", "user")
     session["almacen_id"] = user.get("almacen_id")
     session["permisos"] = user.get("permisos", {})
     session["proveedores"] = user.get("proveedores", [])
@@ -181,19 +158,18 @@ def api_cambiar_password():
 # ── Admin: Usuarios ──
 
 @app.route("/api/admin/usuarios")
-@admin_required
+@permiso_required("manage_users")
 def api_admin_listar_usuarios():
-    users = listar_usuarios(None if _is_superadmin() else _almacen_id())
+    users = listar_usuarios(None if _can("manage_warehouses") else _almacen_id())
     return jsonify(users)
 
 @app.route("/api/admin/usuarios", methods=["POST"])
-@admin_required
+@permiso_required("manage_users")
 def api_admin_crear_usuario():
     data = request.get_json(silent=True) or {}
     username = data.get("username", "").strip()
     password = data.get("password", "")
     nombre = data.get("nombre", "").strip()
-    rol = data.get("rol", "user")
     almacen_id = data.get("almacen_id")
     permisos = data.get("permisos") or {}
     proveedores = data.get("proveedores") or []
@@ -201,36 +177,31 @@ def api_admin_crear_usuario():
         return jsonify({"error": "Username y password requeridos"}), 400
     if len(password) < 4:
         return jsonify({"error": "Password minimo 4 caracteres"}), 400
-    if rol not in ("superadmin", "admin", "user"):
-        return jsonify({"error": "Rol invalido"}), 400
-    if not _is_superadmin() and rol == "superadmin":
-        return jsonify({"error": "Solo superadmin puede crear superadmin"}), 403
-    if not _is_superadmin():
+    if not _can("manage_warehouses"):
         almacen_id = _almacen_id()
     try:
-        uid = crear_usuario(username, password, nombre, rol, almacen_id=almacen_id, permisos=permisos, proveedores=proveedores)
+        uid = crear_usuario(username, password, nombre, almacen_id=almacen_id, permisos=permisos, proveedores=proveedores)
         return jsonify({"ok": True, "id": uid})
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
 
 @app.route("/api/admin/usuarios/<int:uid>", methods=["PUT"])
-@admin_required
+@permiso_required("manage_users")
 def api_admin_editar_usuario(uid):
     data = request.get_json(silent=True) or {}
     target = obtener_usuario(uid)
     if not target:
         return jsonify({"error": "Usuario no encontrado"}), 404
-    if not _is_superadmin() and target.get("almacen_id") != _almacen_id():
+    if not _can("manage_warehouses") and target.get("almacen_id") != _almacen_id():
         return jsonify({"error": "Solo puedes editar usuarios de tu almacen"}), 403
     campos = {}
     if "nombre" in data: campos["nombre"] = data["nombre"]
-    if "rol" in data and data["rol"] in ("superadmin", "admin", "user"):
-        if not _is_superadmin() and data["rol"] == "superadmin":
-            return jsonify({"error": "Solo superadmin puede asignar este rol"}), 403
-        campos["rol"] = data["rol"]
-    if "almacen_id" in data and _is_superadmin():
+    if "almacen_id" in data and _can("manage_warehouses"):
         campos["almacen_id"] = data["almacen_id"]
-    if "activo" in data: campos["activo"] = 1 if data["activo"] else 0
+    if "activo" in data:
+        if not data["activo"] and target.get("username") == "admin":
+            return jsonify({"error": "La cuenta admin no se puede desactivar"}), 403
+        campos["activo"] = 1 if data["activo"] else 0
     if "permisos" in data: campos["permisos"] = data["permisos"]
     if "proveedores" in data: campos["proveedores"] = data["proveedores"]
     if "password" in data and data["password"]:
@@ -241,30 +212,34 @@ def api_admin_editar_usuario(uid):
     return jsonify({"ok": True})
 
 @app.route("/api/admin/usuarios/<int:uid>", methods=["DELETE"])
-@admin_required
+@permiso_required("manage_users")
 def api_admin_eliminar_usuario(uid):
     if uid == _uid():
         return jsonify({"error": "No puedes desactivarte a ti mismo"}), 400
     target = obtener_usuario(uid)
     if not target:
         return jsonify({"error": "Usuario no encontrado"}), 404
-    if not _is_superadmin() and target.get("almacen_id") != _almacen_id():
+    if not _can("manage_warehouses") and target.get("almacen_id") != _almacen_id():
         return jsonify({"error": "Solo puedes desactivar usuarios de tu almacen"}), 403
+    if target.get("username") == "admin":
+        return jsonify({"error": "La cuenta admin no se puede desactivar"}), 403
     eliminar_usuario(uid)
     return jsonify({"ok": True})
 
 
 @app.route("/api/admin/context")
-@admin_required
+@login_required
 def api_admin_context():
+    if not _can_any("manage_users", "manage_settings", "manage_warehouses"):
+        return jsonify({"error": "No tienes permisos de administracion"}), 403
     return jsonify({
         "almacenes": listar_almacenes(),
         "proveedores": listar_proveedores(),
-        "is_superadmin": _is_superadmin(),
+        "can_manage_warehouses": _can("manage_warehouses"),
     })
 
 @app.route("/api/admin/almacenes", methods=["POST"])
-@superadmin_required
+@permiso_required("manage_warehouses")
 def api_admin_crear_almacen():
     data = request.get_json(silent=True) or {}
     nombre = data.get("nombre", "").strip()
@@ -277,7 +252,7 @@ def api_admin_crear_almacen():
         return jsonify({"error": str(e)}), 409
 
 @app.route("/api/admin/almacenes/<int:aid>", methods=["PUT"])
-@superadmin_required
+@permiso_required("manage_warehouses")
 def api_admin_editar_almacen(aid):
     data = request.get_json(silent=True) or {}
     cambios = {}
@@ -299,7 +274,7 @@ def api_admin_editar_almacen(aid):
         return jsonify({"error": msg}), 400
 
 @app.route("/api/admin/proveedores", methods=["POST"])
-@admin_required
+@permiso_required("manage_users")
 def api_admin_crear_proveedor():
     data = request.get_json(silent=True) or {}
     nombre = data.get("nombre", "").strip()
@@ -314,12 +289,12 @@ def api_admin_crear_proveedor():
 # ── Admin: Settings ──
 
 @app.route("/api/admin/settings")
-@admin_required
+@permiso_required("manage_settings")
 def api_admin_get_settings():
     return jsonify(obtener_all_settings())
 
 @app.route("/api/admin/settings", methods=["POST"])
-@admin_required
+@permiso_required("manage_settings")
 def api_admin_save_settings():
     data = request.get_json(silent=True) or {}
     guardar_all_settings(data)
@@ -494,6 +469,6 @@ def api_db():
     return jsonify(db_stats())
 
 @app.route("/api/db/compactar", methods=["POST"])
-@admin_required
+@permiso_required("manage_settings")
 def api_compactar():
     return jsonify(compactar_db())
