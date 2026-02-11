@@ -1,7 +1,7 @@
 """
 Logitime — Base de datos SQLite v3
 Novedades:
-  - Tabla usuarios con roles (admin/user)
+  - Control de acceso por permisos granulares
   - Tabla settings para umbrales editables
   - user_id en analisis (cada usuario ve solo lo suyo, admin ve todo)
   - Hashing de passwords con werkzeug
@@ -231,6 +231,7 @@ def _sanitize_proveedores(proveedores):
 
 def _row_user_public(row):
     d = dict(row)
+    d.pop("rol", None)  # Campo legacy; la autorizacion actual usa permisos.
     d["permisos"] = _normalize_permisos(_parse_json(d.get("permisos"), {}))
     d["proveedores"] = _sanitize_proveedores(_parse_json(d.get("proveedores"), []))
     return d
@@ -304,7 +305,7 @@ def autenticar(username, password):
         row = conn.execute("SELECT * FROM usuarios WHERE username=? AND activo=1", (username,)).fetchone()
         if row and check_password_hash(row["password_hash"], password):
             u = _row_user_public(row)
-            return {"id": u["id"], "username": u["username"], "nombre": u["nombre"], "rol": u["rol"],
+            return {"id": u["id"], "username": u["username"], "nombre": u["nombre"],
                     "almacen_id": u.get("almacen_id"), "permisos": u.get("permisos", {}),
                     "proveedores": u.get("proveedores", [])}
     return None
@@ -326,17 +327,17 @@ def listar_usuarios(almacen_id=None):
     with get_db() as conn:
         if almacen_id is None:
             rows = conn.execute(
-                "SELECT id,username,nombre,rol,almacen_id,permisos,proveedores,activo,created_at FROM usuarios ORDER BY id").fetchall()
+                "SELECT id,username,nombre,almacen_id,permisos,proveedores,activo,created_at FROM usuarios ORDER BY id").fetchall()
         else:
             rows = conn.execute(
-                "SELECT id,username,nombre,rol,almacen_id,permisos,proveedores,activo,created_at FROM usuarios WHERE almacen_id=? ORDER BY id",
+                "SELECT id,username,nombre,almacen_id,permisos,proveedores,activo,created_at FROM usuarios WHERE almacen_id=? ORDER BY id",
                 (almacen_id,)).fetchall()
         return [_row_user_public(r) for r in rows]
 
 def obtener_usuario(uid):
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id,username,nombre,rol,almacen_id,permisos,proveedores,activo,created_at FROM usuarios WHERE id=?", (uid,)).fetchone()
+            "SELECT id,username,nombre,almacen_id,permisos,proveedores,activo,created_at FROM usuarios WHERE id=?", (uid,)).fetchone()
         return _row_user_public(row) if row else None
 
 def actualizar_usuario(uid, **campos):

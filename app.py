@@ -4,6 +4,7 @@ Novedades: Login con sesiones, admin endpoints, settings editables
 """
 
 import os, sys, io, time, traceback, secrets
+from datetime import timedelta
 import numpy as np
 import pandas as pd
 from functools import wraps
@@ -43,6 +44,8 @@ app.json = NumpyJSONProvider(app)
 app.secret_key = secrets.token_hex(32)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("LOGITIME_COOKIE_SECURE", "0") == "1"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=int(os.getenv("LOGITIME_SESSION_HOURS", "12")))
 
 
 # ── Errores siempre JSON ──
@@ -50,7 +53,8 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 def handle_exception(e):
     tb = traceback.format_exc()
     print(f"[ERROR] {e}\n{tb}")
-    return jsonify({"error": str(e)}), 500
+    verbose = app.debug or os.getenv("LOGITIME_VERBOSE_ERRORS", "0") == "1"
+    return jsonify({"error": str(e) if verbose else "Error interno del servidor"}), 500
 
 @app.errorhandler(404)
 def handle_404(e):
@@ -70,19 +74,29 @@ def login_required(f):
 def _uid():
     return session.get("user_id")
 
+def _error(msg, status=400, code=None):
+    payload = {"error": msg}
+    if code:
+        payload["code"] = code
+    return jsonify(payload), status
+
+def _get_json():
+    data = request.get_json(silent=True)
+    return data if isinstance(data, dict) else {}
+
 def permiso_required(nombre):
     def outer(f):
         @wraps(f)
         def decorated(*args, **kwargs):
             if "user_id" not in session:
-                return jsonify({"error": "No autenticado", "code": "AUTH_REQUIRED"}), 401
+                return _error("No autenticado", 401, "AUTH_REQUIRED")
             if not _can(nombre):
-                return jsonify({"error": f"No tienes permiso para '{nombre}'"}), 403
+                return _error(f"No tienes permiso para '{nombre}'", 403)
             return f(*args, **kwargs)
         return decorated
     return outer
 
-def _is_admin():
+def _can_global_scope():
     return _can("manage_warehouses")
 
 def _almacen_id():
@@ -97,6 +111,9 @@ def _can(permiso):
 def _can_any(*permisos):
     return any(_can(p) for p in permisos)
 
+def _can_manage_target_user(target):
+    return _can("manage_warehouses") or target.get("almacen_id") == _almacen_id()
+
 
 # ── Paginas estaticas ──
 
@@ -109,18 +126,19 @@ def index():
 
 @app.route("/api/auth/login", methods=["POST"])
 def api_login():
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     username = data.get("username", "").strip()
     password = data.get("password", "")
     if not username or not password:
-        return jsonify({"error": "Usuario y password requeridos"}), 400
+        return _error("Usuario y password requeridos")
     user = autenticar(username, password)
     if not user:
-        return jsonify({"error": "Credenciales incorrectas"}), 401
+        return _error("Credenciales incorrectas", 401)
+    session.clear()
+    session.permanent = True
     session["user_id"] = user["id"]
     session["username"] = user["username"]
     session["nombre"] = user["nombre"]
-    session["rol"] = user.get("rol", "user")
     session["almacen_id"] = user.get("almacen_id")
     session["permisos"] = user.get("permisos", {})
     session["proveedores"] = user.get("proveedores", [])
@@ -138,7 +156,7 @@ def api_me():
     return jsonify({
         "authenticated": True,
         "user": {"id": session["user_id"], "username": session["username"],
-                 "nombre": session["nombre"], "rol": session["rol"],
+                 "nombre": session["nombre"],
                  "almacen_id": session.get("almacen_id"),
                  "permisos": session.get("permisos", {}),
                  "proveedores": session.get("proveedores", [])}
@@ -147,10 +165,10 @@ def api_me():
 @app.route("/api/auth/cambiar-password", methods=["POST"])
 @login_required
 def api_cambiar_password():
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     new_pw = data.get("password", "")
     if len(new_pw) < 4:
-        return jsonify({"error": "La password debe tener al menos 4 caracteres"}), 400
+        return _error("La password debe tener al menos 4 caracteres")
     actualizar_usuario(_uid(), password=new_pw)
     return jsonify({"ok": True})
 
@@ -166,7 +184,7 @@ def api_admin_listar_usuarios():
 @app.route("/api/admin/usuarios", methods=["POST"])
 @permiso_required("manage_users")
 def api_admin_crear_usuario():
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     username = data.get("username", "").strip()
     password = data.get("password", "")
     nombre = data.get("nombre", "").strip()
@@ -174,9 +192,9 @@ def api_admin_crear_usuario():
     permisos = data.get("permisos") or {}
     proveedores = data.get("proveedores") or []
     if not username or not password:
-        return jsonify({"error": "Username y password requeridos"}), 400
+        return _error("Username y password requeridos")
     if len(password) < 4:
-        return jsonify({"error": "Password minimo 4 caracteres"}), 400
+        return _error("Password minimo 4 caracteres")
     if not _can("manage_warehouses"):
         almacen_id = _almacen_id()
     try:
@@ -188,25 +206,25 @@ def api_admin_crear_usuario():
 @app.route("/api/admin/usuarios/<int:uid>", methods=["PUT"])
 @permiso_required("manage_users")
 def api_admin_editar_usuario(uid):
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     target = obtener_usuario(uid)
     if not target:
-        return jsonify({"error": "Usuario no encontrado"}), 404
-    if not _can("manage_warehouses") and target.get("almacen_id") != _almacen_id():
-        return jsonify({"error": "Solo puedes editar usuarios de tu almacen"}), 403
+        return _error("Usuario no encontrado", 404)
+    if not _can_manage_target_user(target):
+        return _error("Solo puedes editar usuarios de tu almacen", 403)
     campos = {}
     if "nombre" in data: campos["nombre"] = data["nombre"]
     if "almacen_id" in data and _can("manage_warehouses"):
         campos["almacen_id"] = data["almacen_id"]
     if "activo" in data:
         if not data["activo"] and target.get("username") == "admin":
-            return jsonify({"error": "La cuenta admin no se puede desactivar"}), 403
+            return _error("La cuenta admin no se puede desactivar", 403)
         campos["activo"] = 1 if data["activo"] else 0
     if "permisos" in data: campos["permisos"] = data["permisos"]
     if "proveedores" in data: campos["proveedores"] = data["proveedores"]
     if "password" in data and data["password"]:
         if len(data["password"]) < 4:
-            return jsonify({"error": "Password minimo 4 caracteres"}), 400
+            return _error("Password minimo 4 caracteres")
         campos["password"] = data["password"]
     actualizar_usuario(uid, **campos)
     return jsonify({"ok": True})
@@ -215,14 +233,14 @@ def api_admin_editar_usuario(uid):
 @permiso_required("manage_users")
 def api_admin_eliminar_usuario(uid):
     if uid == _uid():
-        return jsonify({"error": "No puedes desactivarte a ti mismo"}), 400
+        return _error("No puedes desactivarte a ti mismo")
     target = obtener_usuario(uid)
     if not target:
-        return jsonify({"error": "Usuario no encontrado"}), 404
-    if not _can("manage_warehouses") and target.get("almacen_id") != _almacen_id():
-        return jsonify({"error": "Solo puedes desactivar usuarios de tu almacen"}), 403
+        return _error("Usuario no encontrado", 404)
+    if not _can_manage_target_user(target):
+        return _error("Solo puedes desactivar usuarios de tu almacen", 403)
     if target.get("username") == "admin":
-        return jsonify({"error": "La cuenta admin no se puede desactivar"}), 403
+        return _error("La cuenta admin no se puede desactivar", 403)
     eliminar_usuario(uid)
     return jsonify({"ok": True})
 
@@ -231,20 +249,22 @@ def api_admin_eliminar_usuario(uid):
 @login_required
 def api_admin_context():
     if not _can_any("manage_users", "manage_settings", "manage_warehouses"):
-        return jsonify({"error": "No tienes permisos de administracion"}), 403
+        return _error("No tienes permisos de administracion", 403)
     return jsonify({
         "almacenes": listar_almacenes(),
         "proveedores": listar_proveedores(),
+        "can_manage_users": _can("manage_users"),
+        "can_manage_settings": _can("manage_settings"),
         "can_manage_warehouses": _can("manage_warehouses"),
     })
 
 @app.route("/api/admin/almacenes", methods=["POST"])
 @permiso_required("manage_warehouses")
 def api_admin_crear_almacen():
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     nombre = data.get("nombre", "").strip()
     if not nombre:
-        return jsonify({"error": "Nombre requerido"}), 400
+        return _error("Nombre requerido")
     try:
         aid = crear_almacen(nombre)
         return jsonify({"ok": True, "id": aid})
@@ -254,14 +274,14 @@ def api_admin_crear_almacen():
 @app.route("/api/admin/almacenes/<int:aid>", methods=["PUT"])
 @permiso_required("manage_warehouses")
 def api_admin_editar_almacen(aid):
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     cambios = {}
     if "nombre" in data:
         cambios["nombre"] = data.get("nombre", "")
     if "activo" in data:
         cambios["activo"] = bool(data.get("activo"))
     if not cambios:
-        return jsonify({"error": "Sin cambios"}), 400
+        return _error("Sin cambios")
     try:
         actualizar_almacen(aid, **cambios)
         return jsonify({"ok": True})
@@ -276,10 +296,10 @@ def api_admin_editar_almacen(aid):
 @app.route("/api/admin/proveedores", methods=["POST"])
 @permiso_required("manage_users")
 def api_admin_crear_proveedor():
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     nombre = data.get("nombre", "").strip()
     if not nombre:
-        return jsonify({"error": "Nombre requerido"}), 400
+        return _error("Nombre requerido")
     try:
         pid = crear_proveedor(nombre)
         return jsonify({"ok": True, "id": pid})
@@ -296,7 +316,7 @@ def api_admin_get_settings():
 @app.route("/api/admin/settings", methods=["POST"])
 @permiso_required("manage_settings")
 def api_admin_save_settings():
-    data = request.get_json(silent=True) or {}
+    data = _get_json()
     guardar_all_settings(data)
     return jsonify({"ok": True, "settings": obtener_all_settings()})
 
@@ -327,7 +347,7 @@ def api_analizar():
         margen_mant = obtener_margen_mantenimiento()
         score_w = obtener_score_weights()
 
-        hist_ops = obtener_historico_ops(_uid(), _is_admin())
+        hist_ops = obtener_historico_ops(_uid(), _can_global_scope())
         t0 = time.time()
         resultado = analizar_excel(
             df_mov, df_mant, archivo=f.filename, historico_ops=hist_ops,
@@ -362,40 +382,40 @@ def api_analizar():
 @login_required
 @permiso_required("historial")
 def api_listar():
-    return jsonify(listar_analisis(request.args.get("limit", 50, type=int), _uid(), _is_admin()))
+    return jsonify(listar_analisis(request.args.get("limit", 50, type=int), _uid(), _can_global_scope()))
 
 @app.route("/api/analisis/<int:aid>")
 @login_required
 def api_detalle(aid):
-    d = obtener_analisis(aid, _uid(), _is_admin())
+    d = obtener_analisis(aid, _uid(), _can_global_scope())
     if not d: abort(404)
     return jsonify(d)
 
 @app.route("/api/analisis/<int:aid>", methods=["DELETE"])
 @login_required
 def api_borrar(aid):
-    eliminar_analisis(aid, _uid(), _is_admin())
+    eliminar_analisis(aid, _uid(), _can_global_scope())
     return jsonify({"ok": True})
 
 @app.route("/api/ultimo")
 @login_required
 @permiso_required("historial")
 def api_ultimo():
-    u = ultimo_analisis(_uid(), _is_admin())
+    u = ultimo_analisis(_uid(), _can_global_scope())
     return jsonify(u if u else {})
 
 @app.route("/api/comparar/<int:id_a>/<int:id_b>")
 @login_required
 @permiso_required("comparar")
 def api_comparar(id_a, id_b):
-    data = comparar_analisis(id_a, id_b, _uid(), _is_admin())
+    data = comparar_analisis(id_a, id_b, _uid(), _can_global_scope())
     if not data: abort(404)
     return jsonify(data)
 
 @app.route("/api/exportar/<int:aid>")
 @login_required
 def api_exportar(aid):
-    data = exportar_analisis(aid, _uid(), _is_admin())
+    data = exportar_analisis(aid, _uid(), _can_global_scope())
     if not data: abort(404)
     output = io.BytesIO()
     info = data["info"]
@@ -427,27 +447,27 @@ def api_exportar(aid):
 @login_required
 @permiso_required("dashboard")
 def api_dashboard():
-    return jsonify(dashboard_data(_uid(), _is_admin()))
+    return jsonify(dashboard_data(_uid(), _can_global_scope()))
 
 @app.route("/api/operarios")
 @login_required
 @permiso_required("operarios")
 def api_ops():
-    return jsonify(buscar_operarios(request.args.get("q",""), _uid(), _is_admin()))
+    return jsonify(buscar_operarios(request.args.get("q",""), _uid(), _can_global_scope()))
 
 @app.route("/api/operarios/<codigo>/historico")
 @login_required
 @permiso_required("operarios")
 def api_hist_op(codigo):
-    return jsonify(historico_operario(codigo, 30, _uid(), _is_admin()))
+    return jsonify(historico_operario(codigo, 30, _uid(), _can_global_scope()))
 
 @app.route("/api/clientes")
 @login_required
 @permiso_required("clientes")
 def api_cls():
-    data = buscar_clientes(request.args.get("q",""), _uid(), _is_admin())
+    data = buscar_clientes(request.args.get("q",""), _uid(), _can_global_scope())
     permitidos = session.get("proveedores") or []
-    if permitidos and not _is_admin():
+    if permitidos and not _can_global_scope():
         permitidos_set = {p.strip().lower() for p in permitidos if p}
         data = [c for c in data if str(c.get("nombre", "")).strip().lower() in permitidos_set]
     return jsonify(data)
@@ -457,11 +477,11 @@ def api_cls():
 @permiso_required("clientes")
 def api_hist_cl(nombre):
     permitidos = session.get("proveedores") or []
-    if permitidos and not _is_admin():
+    if permitidos and not _can_global_scope():
         permitidos_set = {p.strip().lower() for p in permitidos if p}
         if nombre.strip().lower() not in permitidos_set:
             return jsonify([])
-    return jsonify(historico_cliente(nombre, 30, _uid(), _is_admin()))
+    return jsonify(historico_cliente(nombre, 30, _uid(), _can_global_scope()))
 
 @app.route("/api/db")
 @login_required

@@ -351,7 +351,7 @@ function tendIcon(t){return t==='empeorando'?'📈🔴':t==='mejorando'?'📉�
 
 // ============ AUTH ============
 let currentUser=null;
-let adminContext={almacenes:[],proveedores:[],can_manage_warehouses:false};
+let adminContext={almacenes:[],proveedores:[],can_manage_users:false,can_manage_settings:false,can_manage_warehouses:false};
 const PERMISOS_LABELS={analizar:"Analizar",dashboard:"Dashboard",operarios:"Operarios",clientes:"Clientes",historial:"Historial",comparar:"Comparar",manage_users:"Gestion usuarios",manage_settings:"Ajustes",manage_warehouses:"Gestion almacenes"};
 
 async function checkAuth(){
@@ -645,7 +645,7 @@ async function reactivateUser(uid){try{await API('/admin/usuarios/'+uid,{method:
 // ============ ADMIN: WAREHOUSES ============
 async function loadWarehouses(){
   if(!currentUser||!currentUser.permisos||!currentUser.permisos.manage_warehouses){
-    document.getElementById('warehousesTable').innerHTML='<p style="color:var(--text3)">Solo disponible para superadmin.</p>';
+    document.getElementById('warehousesTable').innerHTML='<p style="color:var(--text3)">Requiere permiso: Gestion almacenes.</p>';
     return;
   }
   try{
