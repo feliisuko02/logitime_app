@@ -16,7 +16,7 @@ from database import (
     comparar_analisis, obtener_historico_ops, exportar_analisis,
     ultimo_analisis, compactar_db,
     autenticar, crear_usuario, listar_usuarios, obtener_usuario,
-    actualizar_usuario, eliminar_usuario, listar_almacenes, crear_almacen, listar_proveedores, crear_proveedor,
+    actualizar_usuario, eliminar_usuario, listar_almacenes, crear_almacen, actualizar_almacen, listar_proveedores, crear_proveedor,
     obtener_all_settings, guardar_all_settings,
     obtener_umbrales, obtener_margen_mantenimiento, obtener_score_weights,
 )
@@ -275,6 +275,28 @@ def api_admin_crear_almacen():
         return jsonify({"ok": True, "id": aid})
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
+
+@app.route("/api/admin/almacenes/<int:aid>", methods=["PUT"])
+@superadmin_required
+def api_admin_editar_almacen(aid):
+    data = request.get_json(silent=True) or {}
+    cambios = {}
+    if "nombre" in data:
+        cambios["nombre"] = data.get("nombre", "")
+    if "activo" in data:
+        cambios["activo"] = bool(data.get("activo"))
+    if not cambios:
+        return jsonify({"error": "Sin cambios"}), 400
+    try:
+        actualizar_almacen(aid, **cambios)
+        return jsonify({"ok": True})
+    except ValueError as e:
+        msg = str(e)
+        if "no encontrado" in msg.lower():
+            return jsonify({"error": msg}), 404
+        if "usuarios activos" in msg.lower():
+            return jsonify({"error": msg}), 409
+        return jsonify({"error": msg}), 400
 
 @app.route("/api/admin/proveedores", methods=["POST"])
 @admin_required

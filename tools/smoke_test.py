@@ -46,21 +46,35 @@ def main() -> int:
         r = c.post("/api/admin/almacenes", json={"nombre": "Almacen QA"})
         assert_ok(r.status_code in (200, 409), f"Crear almacén devolvió {r.status_code}")
 
-        # 4) Crear proveedor
+        # 4) Renombrar almacén
+        almacen_qa_id = None
+        if r.status_code == 200:
+            almacen_qa_id = (r.get_json() or {}).get("id")
+        if not almacen_qa_id:
+            r_ctx = c.get("/api/admin/context")
+            almacenes_ctx = (r_ctx.get_json() or {}).get("almacenes") or []
+            found = next((a for a in almacenes_ctx if a.get("nombre") == "Almacen QA"), None)
+            if found:
+                almacen_qa_id = found.get("id")
+        assert_ok(bool(almacen_qa_id), "No se encontró ID de Almacen QA")
+        r = c.put(f"/api/admin/almacenes/{almacen_qa_id}", json={"nombre": "Almacen QA Renombrado"})
+        assert_ok(r.status_code == 200, f"Renombrar almacén devolvió {r.status_code}")
+
+        # 5) Crear proveedor
         r = c.post("/api/admin/proveedores", json={"nombre": "Proveedor QA"})
         assert_ok(r.status_code in (200, 409), f"Crear proveedor devolvió {r.status_code}")
 
-        # 5) Obtener contexto actualizado
+        # 6) Obtener contexto actualizado
         r = c.get("/api/admin/context")
         assert_ok(r.status_code == 200, "No se pudo recargar contexto")
         ctx = r.get_json() or {}
         almacenes = ctx.get("almacenes") or []
         proveedores = ctx.get("proveedores") or []
-        assert_ok(any(a.get("nombre") == "Almacen QA" for a in almacenes), "No aparece Almacen QA")
+        assert_ok(any(a.get("nombre") == "Almacen QA Renombrado" for a in almacenes), "No aparece Almacen QA Renombrado")
         assert_ok(any(p.get("nombre") == "Proveedor QA" for p in proveedores), "No aparece Proveedor QA")
 
-        # 6) Crear usuario restringido por proveedor y permisos
-        almacen_qa = next((a for a in almacenes if a.get("nombre") == "Almacen QA"), None)
+        # 7) Crear usuario restringido por proveedor y permisos
+        almacen_qa = next((a for a in almacenes if a.get("nombre") == "Almacen QA Renombrado"), None)
         assert_ok(almacen_qa is not None, "No existe almacén QA para prueba")
         payload = {
             "username": "usuario_qa",
@@ -83,7 +97,7 @@ def main() -> int:
         r = c.post("/api/admin/usuarios", json=payload)
         assert_ok(r.status_code in (200, 409), f"Crear usuario QA devolvió {r.status_code}")
 
-        # 7) Validar estructura en listado de usuarios
+        # 8) Validar estructura en listado de usuarios
         r = c.get("/api/admin/usuarios")
         assert_ok(r.status_code == 200, "No se pudo listar usuarios")
         users = r.get_json() or []
@@ -92,7 +106,7 @@ def main() -> int:
         assert_ok("permisos" in uqa and isinstance(uqa["permisos"], dict), "usuario_qa sin permisos")
         assert_ok("proveedores" in uqa and isinstance(uqa["proveedores"], list), "usuario_qa sin proveedores")
 
-    print(json.dumps({"ok": True, "checks": 7}, ensure_ascii=False))
+    print(json.dumps({"ok": True, "checks": 8}, ensure_ascii=False))
     return 0
 
 

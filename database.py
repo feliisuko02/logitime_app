@@ -257,6 +257,36 @@ def crear_almacen(nombre):
         except sqlite3.IntegrityError:
             raise ValueError(f"El almacen '{nombre}' ya existe")
 
+def actualizar_almacen(aid, nombre=None, activo=None):
+    updates = {}
+    if nombre is not None:
+        nombre = str(nombre).strip()
+        if not nombre:
+            raise ValueError("Nombre de almacen invalido")
+        updates["nombre"] = nombre
+    if activo is not None:
+        updates["activo"] = 1 if bool(activo) else 0
+    if not updates:
+        return False
+
+    with get_db() as conn:
+        row = conn.execute("SELECT id,nombre,activo FROM almacenes WHERE id=?", (aid,)).fetchone()
+        if not row:
+            raise ValueError("Almacen no encontrado")
+        if updates.get("activo") == 0:
+            users_count = conn.execute(
+                "SELECT COUNT(*) AS n FROM usuarios WHERE almacen_id=? AND activo=1",
+                (aid,),
+            ).fetchone()["n"]
+            if users_count > 0:
+                raise ValueError("No puedes desactivar un almacen con usuarios activos")
+        try:
+            sets = ", ".join(f"{k}=?" for k in updates)
+            conn.execute(f"UPDATE almacenes SET {sets} WHERE id=?", (*updates.values(), aid))
+            return True
+        except sqlite3.IntegrityError:
+            raise ValueError(f"El almacen '{updates.get('nombre', row['nombre'])}' ya existe")
+
 def listar_proveedores(activos_solo=False):
     with get_db() as conn:
         q = "SELECT id,nombre,activo,created_at FROM proveedores"

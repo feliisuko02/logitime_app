@@ -48,6 +48,7 @@ a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
 .nav-btn:hover{background:var(--bg3);color:var(--text)}.nav-btn.active{background:var(--accent);color:#fff}
 .nav-btn .ico{font-size:1.1rem;width:24px;text-align:center}
 .nav-btn.admin-only{display:none}
+.nav-btn.superadmin-only{display:none}
 .sidebar-bottom{margin-top:auto;display:flex;flex-direction:column;gap:8px}
 .sidebar-footer{padding:8px;font-size:.75rem;color:var(--text3);border-top:1px solid var(--border);padding-top:12px}
 .theme-toggle,.logout-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;border-radius:8px;font:500 .8rem var(--font);transition:all .15s;width:100%}
@@ -196,6 +197,7 @@ select.input{cursor:pointer}
   <button class="nav-btn" data-page="historial"><span class="ico">📋</span>Historial</button>
   <button class="nav-btn" data-page="comparar"><span class="ico">🔀</span>Comparar</button>
   <button class="nav-btn admin-only" data-page="admin-users"><span class="ico">👥</span>Usuarios</button>
+  <button class="nav-btn superadmin-only" data-page="admin-warehouses"><span class="ico">🏬</span>Almacenes</button>
   <button class="nav-btn admin-only" data-page="admin-settings"><span class="ico">⚙️</span>Ajustes</button>
   <div class="sidebar-bottom">
     <button class="theme-toggle" onclick="toggleTheme()"><span id="themeIcon">🌙</span><span id="themeLabel">Modo claro</span></button>
@@ -265,6 +267,21 @@ select.input{cursor:pointer}
     </div>
   </div>
   <div class="card"><div class="card-title">Usuarios existentes</div><div id="usersTable"></div></div>
+</div>
+
+<!-- ADMIN ALMACENES -->
+<div id="page-admin-warehouses" class="page">
+  <h2 style="margin-bottom:20px">🏬 Gestion de almacenes</h2>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Crear almacen</div>
+    <div class="admin-form">
+      <div class="row">
+        <div><label style="font-size:.8rem;color:var(--text3)">Nombre del almacen</label><input class="input" id="newWarehouseName" placeholder="Ej: Almacen Valencia"></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-success" onclick="crearAlmacen()">Crear almacen</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">Almacenes existentes</div><div id="warehousesTable"></div></div>
 </div>
 
 <!-- ADMIN SETTINGS -->
@@ -363,6 +380,8 @@ function onLogin(user){
   const isAdmin=(user.rol==='admin'||user.rol==='superadmin');
   document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'flex':'none');
   document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=isAdmin?'block':'none');
+  const isSuperAdmin=(user.rol==='superadmin');
+  document.querySelectorAll('.superadmin-only').forEach(el=>el.style.display=isSuperAdmin?'flex':'none');
   loadLastAnalysis();loadDbInfo();
   if(user.rol==='admin'||user.rol==='superadmin')loadAdminContext();
 }
@@ -406,6 +425,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(pg==='historial')loadHistorial();
     if(pg==='comparar')loadCompareSelects();
     if(pg==='admin-users')loadUsers();
+    if(pg==='admin-warehouses')loadWarehouses();
     if(pg==='admin-settings')loadSettings();
   });
 });
@@ -620,6 +640,39 @@ async function guardarEditUser(){
 async function deactivateUser(uid,name){if(!confirm(`Desactivar a "${name}"?`))return;try{await API('/admin/usuarios/'+uid,{method:'DELETE'});toast('Usuario desactivado','success');loadUsers()}catch(e){toast(e.message,'error')}}
 
 async function reactivateUser(uid){try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo:true})});toast('Usuario reactivado','success');loadUsers()}catch(e){toast(e.message,'error')}}
+
+// ============ ADMIN: WAREHOUSES ============
+async function loadWarehouses(){
+  if(!currentUser||currentUser.rol!=='superadmin'){
+    document.getElementById('warehousesTable').innerHTML='<p style="color:var(--text3)">Solo disponible para superadmin.</p>';
+    return;
+  }
+  try{
+    if(!adminContext.almacenes?.length)await loadAdminContext();
+    const rows=(adminContext.almacenes||[]).map(a=>`<tr><td class="mono">${a.id}</td><td>${esc(a.nombre)}</td><td class="text-center">${a.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((a.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:6px"><button class="btn btn-sm btn-ghost" onclick="editarAlmacen(${a.id},'${esc(a.nombre)}')">✏️ Renombrar</button>${a.activo?`<button class="btn btn-sm btn-danger" onclick="toggleAlmacen(${a.id},false)">Desactivar</button>`:`<button class="btn btn-sm btn-success" onclick="toggleAlmacen(${a.id},true)">Activar</button>`}</td></tr>`).join('');
+    document.getElementById('warehousesTable').innerHTML=`<table><thead><tr><th>ID</th><th>Nombre</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" style="color:var(--text3)">Sin almacenes</td></tr>'}</tbody></table>`;
+  }catch(e){toast(e.message,'error')}
+}
+
+async function crearAlmacen(){
+  const nombre=document.getElementById('newWarehouseName').value.trim();
+  if(!nombre){toast('Nombre requerido','warning');return}
+  try{await API('/admin/almacenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre})});toast('Almacen creado','success');document.getElementById('newWarehouseName').value='';await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
+
+async function editarAlmacen(id,nombreActual){
+  const nombre=prompt('Nuevo nombre del almacen',nombreActual||'');
+  if(nombre===null)return;
+  const limpio=nombre.trim();
+  if(!limpio){toast('Nombre requerido','warning');return}
+  try{await API('/admin/almacenes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre:limpio})});toast('Almacen actualizado','success');await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
+
+async function toggleAlmacen(id,activo){
+  const accion=activo?'activar':'desactivar';
+  if(!confirm(`Seguro que quieres ${accion} este almacen?`))return;
+  try{await API('/admin/almacenes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast(`Almacen ${activo?'activado':'desactivado'}`,'success');await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
 
 // ============ ADMIN: SETTINGS ============
 async function loadSettings(){
