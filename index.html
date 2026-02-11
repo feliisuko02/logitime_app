@@ -177,7 +177,7 @@ select.input{cursor:pointer}
     <div class="field"><label>Usuario</label><input class="input" id="loginUser" autocomplete="username"></div>
     <div class="field"><label>Contrasena</label><input class="input" id="loginPass" type="password" autocomplete="current-password"></div>
     <button class="btn btn-primary btn-lg" style="width:100%;margin-top:8px" id="loginBtn" onclick="doLogin()">Entrar</button>
-    <p style="text-align:center;margin-top:20px;font-size:.75rem;color:var(--text3)">Primera vez? admin / admin123</p>
+    <p style="text-align:center;margin-top:20px;font-size:.75rem;color:var(--text3)">Contacta con el administrador para activar tu cuenta</p>
   </div>
 </div>
 
@@ -258,7 +258,9 @@ select.input{cursor:pointer}
       <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Usuario</label><input class="input" id="newUser" placeholder="usuario"></div>
         <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="newNombre" placeholder="Nombre completo"></div></div>
       <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Contrasena</label><input class="input" id="newPass" type="text" placeholder="minimo 4 caracteres"></div>
-        <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="newRol"><option value="user">Usuario</option><option value="admin">Admin</option></select></div></div>
+        <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="newRol"><option value="user">Usuario</option><option value="admin">Admin almacen</option><option value="superadmin">Superadmin</option></select></div></div>
+      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Almacen</label><select class="input" id="newAlmacen"></select></div><div><label style="font-size:.8rem;color:var(--text3)">Proveedores permitidos</label><select class="input" id="newProveedores" multiple size="4"></select></div></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Permisos</label><div id="newPermisos" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px"></div></div>
       <button class="btn btn-success" onclick="crearUsuario()">Crear usuario</button>
     </div>
   </div>
@@ -296,7 +298,10 @@ select.input{cursor:pointer}
     <input type="hidden" id="editUid">
     <div style="display:grid;gap:12px">
       <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="editNombre"></div>
-      <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="editRol"><option value="user">Usuario</option><option value="admin">Admin</option></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="editRol"><option value="user">Usuario</option><option value="admin">Admin almacen</option><option value="superadmin">Superadmin</option></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Almacen</label><select class="input" id="editAlmacen"></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Proveedores permitidos</label><select class="input" id="editProveedores" multiple size="4"></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Permisos</label><div id="editPermisos" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px"></div></div>
       <div><label style="font-size:.8rem;color:var(--text3)">Nueva contrasena (dejar vacio para no cambiar)</label><input class="input" id="editPass" type="text" placeholder="****"></div>
       <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px">
         <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
@@ -331,6 +336,8 @@ function tendIcon(t){return t==='empeorando'?'📈🔴':t==='mejorando'?'📉�
 
 // ============ AUTH ============
 let currentUser=null;
+let adminContext={almacenes:[],proveedores:[],is_superadmin:false};
+const PERMISOS_LABELS={analizar:"Analizar",dashboard:"Dashboard",operarios:"Operarios",clientes:"Clientes",historial:"Historial",comparar:"Comparar",manage_users:"Gestion usuarios",manage_settings:"Ajustes"};
 
 async function checkAuth(){
   try{
@@ -351,12 +358,13 @@ function onLogin(user){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appShell').classList.add('show');
   document.getElementById('userDisplay').textContent=user.nombre||user.username;
-  document.getElementById('roleDisplay').textContent=user.rol==='admin'?'Administrador':'Usuario';
+  document.getElementById('roleDisplay').textContent=user.rol==='superadmin'?'Superadministrador':(user.rol==='admin'?'Admin almacen':'Usuario');
   // Show admin buttons
-  const isAdmin=user.rol==='admin';
+  const isAdmin=(user.rol==='admin'||user.rol==='superadmin');
   document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'flex':'none');
   document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=isAdmin?'block':'none');
   loadLastAnalysis();loadDbInfo();
+  if(user.rol==='admin'||user.rol==='superadmin')loadAdminContext();
 }
 
 async function doLogin(){
@@ -542,14 +550,49 @@ async function loadCompareSelects(){try{const list=await API('/analisis');const 
 
 async function doCompare(){const idA=document.getElementById('compareA').value,idB=document.getElementById('compareB').value;if(!idA||!idB||idA===idB){toast('Selecciona dos diferentes','warning');return}const el=document.getElementById('compareResult');el.innerHTML='<div class="loader show"><div class="spinner"></div></div>';clearCharts();try{const d=await API(`/comparar/${idA}/${idB}`);const a=d.a,b=d.b;const allCodes=[...new Set([...(a.operarios||[]).map(o=>o.codigo),...(b.operarios||[]).map(o=>o.codigo)])];const mA=Object.fromEntries((a.operarios||[]).map(o=>[o.codigo,o]));const mB=Object.fromEntries((b.operarios||[]).map(o=>[o.codigo,o]));el.innerHTML=`<div class="card section"><div class="card-title">📊 Resumen</div><table><thead><tr><th>Metrica</th><th class="text-right">A</th><th class="text-right">B</th></tr></thead><tbody><tr><td>Movimientos</td><td class="text-right mono">${a.total_movimientos}</td><td class="text-right mono">${b.total_movimientos}</td></tr><tr><td>Anomalias</td><td class="text-right mono">${a.total_anomalias}</td><td class="text-right mono">${b.total_anomalias}</td></tr><tr><td>Tasa</td><td class="text-right mono">${a.tasa_anomalias_pct}%</td><td class="text-right mono">${b.tasa_anomalias_pct}%</td></tr></tbody></table></div><div class="card section"><div class="card-title">📊 Visual</div><div class="chart-container"><canvas id="chartCompare"></canvas></div></div>`;mkChart('chartCompare',{type:'bar',data:{labels:allCodes.map(c=>esc((mA[c]||mB[c])?.nombre||c)),datasets:[{label:'A: Anom',data:allCodes.map(c=>mA[c]?.total_anomalias||0),backgroundColor:'rgba(239,68,68,.6)'},{label:'B: Anom',data:allCodes.map(c=>mB[c]?.total_anomalias||0),backgroundColor:'rgba(59,130,246,.6)'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true},x:{ticks:{color:'#64748b'}}}}})}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`}}
 
+async function loadAdminContext(){
+  try{
+    adminContext=await API('/admin/context');
+    fillAdminSelects();
+  }catch(e){toast(e.message,'error')}
+}
+
+function fillPermisos(containerId,permisos={}){
+  const el=document.getElementById(containerId);
+  if(!el)return;
+  el.innerHTML=Object.entries(PERMISOS_LABELS).map(([k,label])=>`<label style="display:flex;gap:8px;align-items:center;font-size:.85rem"><input type="checkbox" data-perm="${k}" ${permisos[k]?'checked':''}> ${label}</label>`).join('');
+}
+
+function getPermisos(containerId){
+  const out={};
+  document.querySelectorAll(`#${containerId} [data-perm]`).forEach(i=>out[i.dataset.perm]=i.checked);
+  return out;
+}
+
+function selectedValues(id){
+  return Array.from(document.getElementById(id).selectedOptions).map(o=>o.value);
+}
+
+function fillAdminSelects(){
+  const almacenes=(adminContext.almacenes||[]).map(a=>`<option value="${a.id}">${esc(a.nombre)}</option>`).join('');
+  const proveedores=(adminContext.proveedores||[]).map(p=>`<option value="${esc(p.nombre)}">${esc(p.nombre)}</option>`).join('');
+  ['newAlmacen','editAlmacen'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=almacenes});
+  ['newProveedores','editProveedores'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=proveedores});
+  fillPermisos('newPermisos',{analizar:true,dashboard:true,operarios:true,clientes:true,historial:true,comparar:true});
+  if(!adminContext.is_superadmin){['newRol','editRol'].forEach(id=>{const opt=document.querySelector(`#${id} option[value="superadmin"]`);if(opt)opt.remove();});}
+}
+
 // ============ ADMIN: USERS ============
-async function loadUsers(){try{const users=await API('/admin/usuarios');document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th class="text-center">Rol</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td class="text-center"><span class="badge ${u.rol==='admin'?'badge-purple':'badge-blue'}">${esc(u.rol)}</span></td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`}catch(e){toast(e.message,'error')}}
+async function loadUsers(){try{const users=await API('/admin/usuarios');const almMap=Object.fromEntries((adminContext.almacenes||[]).map(a=>[a.id,a.nombre]));document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th>Almacen</th><th class="text-center">Rol</th><th>Proveedores</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td>${esc(almMap[u.almacen_id]||'-')}</td><td class="text-center"><span class="badge ${u.rol==='superadmin'?'badge-purple':(u.rol==='admin'?'badge-blue':'badge-gray')}">${esc(u.rol)}</span></td><td style="font-size:.75rem">${esc((u.proveedores||[]).join(', '))}</td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`}catch(e){toast(e.message,'error')}}
 
 async function crearUsuario(){
   const u=document.getElementById('newUser').value.trim(),p=document.getElementById('newPass').value;
   const n=document.getElementById('newNombre').value.trim(),r=document.getElementById('newRol').value;
+  const almac=document.getElementById('newAlmacen').value;
+  const proveedores=selectedValues('newProveedores');
+  const permisos=getPermisos('newPermisos');
   if(!u||!p){toast('Usuario y contrasena requeridos','warning');return}
-  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,rol:r})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
+  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,rol:r,almacen_id:parseInt(almac)||null,proveedores,permisos})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
 }
 
 function openEditModal(uid){
@@ -558,6 +601,9 @@ function openEditModal(uid){
     document.getElementById('editUid').value=uid;
     document.getElementById('editNombre').value=u.nombre||'';
     document.getElementById('editRol').value=u.rol;
+    document.getElementById('editAlmacen').value=u.almacen_id||'';
+    fillPermisos('editPermisos',u.permisos||{});
+    Array.from(document.getElementById('editProveedores').options).forEach(op=>op.selected=(u.proveedores||[]).includes(op.value));
     document.getElementById('editPass').value='';
     document.getElementById('editUserModal').classList.add('show');
   });
@@ -566,7 +612,7 @@ function closeEditModal(){document.getElementById('editUserModal').classList.rem
 
 async function guardarEditUser(){
   const uid=document.getElementById('editUid').value;
-  const data={nombre:document.getElementById('editNombre').value,rol:document.getElementById('editRol').value};
+  const data={nombre:document.getElementById('editNombre').value,rol:document.getElementById('editRol').value,almacen_id:parseInt(document.getElementById('editAlmacen').value)||null,proveedores:selectedValues('editProveedores'),permisos:getPermisos('editPermisos')};
   const pw=document.getElementById('editPass').value;if(pw)data.password=pw;
   try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Usuario actualizado','success');closeEditModal();loadUsers()}catch(e){toast(e.message,'error')}
 }

@@ -7,7 +7,7 @@ Novedades:
   - Hashing de passwords con werkzeug
 """
 
-import sqlite3, os, sys, time, json
+import sqlite3, os, sys, time, json, copy
 from contextlib import contextmanager
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -28,6 +28,19 @@ DEFAULT_UMBRALES = {
 }
 DEFAULT_MARGEN_MANT = 30
 DEFAULT_SCORE_WEIGHTS = {"rate_w": 50, "excess_w": 30, "trend_w": 20}
+
+
+DEFAULT_PERMISOS = {
+    "analizar": True,
+    "dashboard": True,
+    "operarios": True,
+    "clientes": True,
+    "historial": True,
+    "comparar": True,
+    "manage_users": False,
+    "manage_settings": False,
+}
+DEFAULT_ALMACEN = "Almacen Principal"
 
 
 @contextmanager
@@ -60,14 +73,30 @@ def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     with get_db() as conn:
         conn.executescript("""
+            CREATE TABLE IF NOT EXISTS almacenes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                activo INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            );
+            CREATE TABLE IF NOT EXISTS proveedores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nombre TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                activo INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now','localtime'))
+            );
             CREATE TABLE IF NOT EXISTS usuarios (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE COLLATE NOCASE,
                 password_hash TEXT NOT NULL,
                 nombre TEXT DEFAULT '',
-                rol TEXT DEFAULT 'user' CHECK(rol IN ('admin','user')),
+                rol TEXT DEFAULT 'user' CHECK(rol IN ('superadmin','admin','user')),
+                almacen_id INTEGER,
+                permisos TEXT DEFAULT '{}',
+                proveedores TEXT DEFAULT '[]',
                 activo INTEGER DEFAULT 1,
-                created_at TEXT DEFAULT (datetime('now','localtime'))
+                created_at TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY (almacen_id) REFERENCES almacenes(id)
             );
             CREATE TABLE IF NOT EXISTS settings (
                 clave TEXT PRIMARY KEY,
@@ -124,9 +153,12 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_an_analisis ON anomalias(analisis_id);
             CREATE INDEX IF NOT EXISTS idx_analisis_fecha ON analisis(fecha);
             CREATE INDEX IF NOT EXISTS idx_analisis_user ON analisis(user_id);
+            CREATE INDEX IF NOT EXISTS idx_users_almacen ON usuarios(almacen_id);
         """)
         _migrate(conn)
+        _seed_almacen(conn)
         _seed_admin(conn)
+        _seed_proveedores(conn)
         _seed_settings(conn)
 
 def _migrate(conn):
@@ -135,6 +167,9 @@ def _migrate(conn):
         ("analisis", "alertas", "TEXT DEFAULT '[]'"),
         ("analisis", "user_id", "INTEGER"),
         ("anomalias", "umbral_tipo", "TEXT DEFAULT 'fijo'"),
+        ("usuarios", "almacen_id", "INTEGER"),
+        ("usuarios", "permisos", "TEXT DEFAULT '{}'"),
+        ("usuarios", "proveedores", "TEXT DEFAULT '[]'"),
     ]:
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typedef}")
@@ -142,11 +177,20 @@ def _migrate(conn):
             pass
     conn.execute("DROP TABLE IF EXISTS movimientos")
 
+def _seed_almacen(conn):
+    conn.execute("INSERT OR IGNORE INTO almacenes (nombre) VALUES (?)", (DEFAULT_ALMACEN,))
+
 def _seed_admin(conn):
     if conn.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0] == 0:
+        almacen_id = conn.execute("SELECT id FROM almacenes ORDER BY id LIMIT 1").fetchone()[0]
         conn.execute(
-            "INSERT INTO usuarios (username,password_hash,nombre,rol) VALUES (?,?,?,?)",
-            ("admin", generate_password_hash("admin123"), "Administrador", "admin"))
+            "INSERT INTO usuarios (username,password_hash,nombre,rol,almacen_id,permisos) VALUES (?,?,?,?,?,?)",
+            ("admin", generate_password_hash("admin123"), "Administrador", "superadmin", almacen_id,
+             json.dumps({**DEFAULT_PERMISOS, "manage_users": True, "manage_settings": True})))
+
+def _seed_proveedores(conn):
+    for n in ["Proveedor General"]:
+        conn.execute("INSERT OR IGNORE INTO proveedores (nombre) VALUES (?)", (n,))
 
 def _seed_settings(conn):
     for k, v in [("umbrales", json.dumps(DEFAULT_UMBRALES)),
@@ -158,44 +202,136 @@ def _seed_settings(conn):
             pass
 
 
+def _parse_json(raw, fallback):
+    if not raw:
+        return copy.deepcopy(fallback)
+    try:
+        value = json.loads(raw)
+        return value
+    except Exception:
+        return copy.deepcopy(fallback)
+
+def _default_permisos_by_role(rol):
+    base = copy.deepcopy(DEFAULT_PERMISOS)
+    if rol in ("admin", "superadmin"):
+        base["manage_users"] = True
+        base["manage_settings"] = True
+    return base
+
+def _normalize_permisos(permisos, rol):
+    base = _default_permisos_by_role(rol)
+    if isinstance(permisos, dict):
+        for k in base.keys():
+            if k in permisos:
+                base[k] = bool(permisos[k])
+    return base
+
+def _sanitize_proveedores(proveedores):
+    if not isinstance(proveedores, list):
+        return []
+    clean = []
+    for p in proveedores:
+        if isinstance(p, str) and p.strip():
+            clean.append(p.strip())
+    return sorted(set(clean))
+
+def _row_user_public(row):
+    d = dict(row)
+    d["permisos"] = _normalize_permisos(_parse_json(d.get("permisos"), {}), d.get("rol", "user"))
+    d["proveedores"] = _sanitize_proveedores(_parse_json(d.get("proveedores"), []))
+    return d
+
+def listar_almacenes(activos_solo=False):
+    with get_db() as conn:
+        q = "SELECT id,nombre,activo,created_at FROM almacenes"
+        if activos_solo:
+            q += " WHERE activo=1"
+        q += " ORDER BY nombre"
+        return _rows(conn.execute(q).fetchall())
+
+def crear_almacen(nombre):
+    with get_db() as conn:
+        try:
+            cur = conn.execute("INSERT INTO almacenes (nombre) VALUES (?)", (nombre.strip(),))
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError(f"El almacen '{nombre}' ya existe")
+
+def listar_proveedores(activos_solo=False):
+    with get_db() as conn:
+        q = "SELECT id,nombre,activo,created_at FROM proveedores"
+        if activos_solo:
+            q += " WHERE activo=1"
+        q += " ORDER BY nombre"
+        return _rows(conn.execute(q).fetchall())
+
+def crear_proveedor(nombre):
+    with get_db() as conn:
+        try:
+            cur = conn.execute("INSERT INTO proveedores (nombre) VALUES (?)", (nombre.strip(),))
+            return cur.lastrowid
+        except sqlite3.IntegrityError:
+            raise ValueError(f"El proveedor '{nombre}' ya existe")
+
 # ===================== AUTH =====================
 
 def autenticar(username, password):
     with get_db() as conn:
         row = conn.execute("SELECT * FROM usuarios WHERE username=? AND activo=1", (username,)).fetchone()
         if row and check_password_hash(row["password_hash"], password):
-            return {"id": row["id"], "username": row["username"],
-                    "nombre": row["nombre"], "rol": row["rol"]}
+            u = _row_user_public(row)
+            return {"id": u["id"], "username": u["username"], "nombre": u["nombre"], "rol": u["rol"],
+                    "almacen_id": u.get("almacen_id"), "permisos": u.get("permisos", {}),
+                    "proveedores": u.get("proveedores", [])}
     return None
 
-def crear_usuario(username, password, nombre="", rol="user"):
+def crear_usuario(username, password, nombre="", rol="user", almacen_id=None, permisos=None, proveedores=None):
+    if rol not in ("superadmin", "admin", "user"):
+        raise ValueError("Rol invalido")
+    permisos_n = _normalize_permisos(permisos, rol)
+    proveedores_n = _sanitize_proveedores(proveedores or [])
     with get_db() as conn:
         try:
             cur = conn.execute(
-                "INSERT INTO usuarios (username,password_hash,nombre,rol) VALUES (?,?,?,?)",
-                (username, generate_password_hash(password), nombre, rol))
+                "INSERT INTO usuarios (username,password_hash,nombre,rol,almacen_id,permisos,proveedores) VALUES (?,?,?,?,?,?,?)",
+                (username, generate_password_hash(password), nombre, rol, almacen_id,
+                 json.dumps(permisos_n, ensure_ascii=False), json.dumps(proveedores_n, ensure_ascii=False)))
             return cur.lastrowid
         except sqlite3.IntegrityError:
             raise ValueError(f"El usuario '{username}' ya existe")
 
-def listar_usuarios():
+def listar_usuarios(almacen_id=None):
     with get_db() as conn:
-        return _rows(conn.execute(
-            "SELECT id,username,nombre,rol,activo,created_at FROM usuarios ORDER BY id").fetchall())
+        if almacen_id is None:
+            rows = conn.execute(
+                "SELECT id,username,nombre,rol,almacen_id,permisos,proveedores,activo,created_at FROM usuarios ORDER BY id").fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id,username,nombre,rol,almacen_id,permisos,proveedores,activo,created_at FROM usuarios WHERE almacen_id=? ORDER BY id",
+                (almacen_id,)).fetchall()
+        return [_row_user_public(r) for r in rows]
 
 def obtener_usuario(uid):
     with get_db() as conn:
         row = conn.execute(
-            "SELECT id,username,nombre,rol,activo,created_at FROM usuarios WHERE id=?", (uid,)).fetchone()
-        return dict(row) if row else None
+            "SELECT id,username,nombre,rol,almacen_id,permisos,proveedores,activo,created_at FROM usuarios WHERE id=?", (uid,)).fetchone()
+        return _row_user_public(row) if row else None
 
 def actualizar_usuario(uid, **campos):
     with get_db() as conn:
+        existing = conn.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()
+        if not existing:
+            return
+        target_role = campos.get("rol", existing["rol"])
         if "password" in campos and campos["password"]:
             conn.execute("UPDATE usuarios SET password_hash=? WHERE id=?",
                          (generate_password_hash(campos.pop("password")), uid))
-        allowed = {"nombre", "rol", "activo"}
+        allowed = {"nombre", "rol", "activo", "almacen_id"}
         updates = {k: v for k, v in campos.items() if k in allowed}
+        if "permisos" in campos:
+            updates["permisos"] = json.dumps(_normalize_permisos(campos["permisos"], target_role), ensure_ascii=False)
+        if "proveedores" in campos:
+            updates["proveedores"] = json.dumps(_sanitize_proveedores(campos["proveedores"]), ensure_ascii=False)
         if updates:
             sets = ", ".join(f"{k}=?" for k in updates)
             conn.execute(f"UPDATE usuarios SET {sets} WHERE id=?", (*updates.values(), uid))

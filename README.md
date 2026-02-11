@@ -33,3 +33,35 @@ Doble clic en **`INICIAR.bat`** para ejecutar desde código fuente.
 | `COMPILAR_INSTALADOR.bat` | Generar Setup_Logitime.exe |
 | `installer/logitime.iss` | Script de Inno Setup |
 | `assets/` | Icono y gráficos del instalador |
+
+
+## Probar la nueva versión (multi-almacén y permisos)
+
+### 1) Validación automática (rápida)
+```bash
+python tools/smoke_test.py
+```
+Si todo está bien, verás algo como:
+```json
+{"ok": true, "checks": 7}
+```
+
+### 2) Prueba manual en la interfaz
+1. Ejecuta la app (`INICIAR.bat` en Windows o `python main.py`).
+2. Inicia sesión con:
+   - usuario: `admin`
+   - contraseña: `admin123`
+3. Ve a **Usuarios** y crea:
+   - un almacén nuevo,
+   - un proveedor nuevo,
+   - un usuario con permisos limitados.
+4. Inicia sesión con el usuario limitado y verifica:
+   - que solo ve los apartados permitidos,
+   - que no puede administrar usuarios/ajustes,
+   - que en clientes solo aparezcan los proveedores asignados.
+
+### 3) Comprobaciones de backend útiles
+```bash
+python -m py_compile app.py database.py main.py engine.py
+```
+
