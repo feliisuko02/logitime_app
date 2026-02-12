@@ -178,7 +178,24 @@ def main() -> int:
         r = c.post("/api/admin/usuarios/bulk-status", json={"ids": many, "activo": True})
         assert_ok(r.status_code == 400, f"Esperado 400 por limite bulk, devolvio {r.status_code}")
 
-    print(json.dumps({"ok": True, "checks": 17}, ensure_ascii=False))
+        # 18) Workspace overview debe incluir feed y estado
+        r = c.get("/api/workspace/overview")
+        assert_ok(r.status_code == 200, f"Workspace overview fallo: {r.status_code}")
+        ws = r.get_json() or {}
+        assert_ok(isinstance(ws.get("feed"), list), "Workspace sin feed")
+        assert_ok(isinstance(ws.get("system"), dict), "Workspace sin system")
+
+        # 19) Estadisticas de usuarios para panel admin
+        r = c.get("/api/admin/usuarios/stats")
+        assert_ok(r.status_code == 200, f"Users stats fallo: {r.status_code}")
+        ust = r.get_json() or {}
+        assert_ok("total" in ust and "active" in ust and "inactive" in ust, "Users stats incompleto")
+
+        # 20) Workspace incluye atajos habilitados por permisos
+        enabled_shortcuts = [x for x in (ws.get("shortcuts") or []) if x.get("enabled")]
+        assert_ok(len(enabled_shortcuts) >= 1, "Workspace sin atajos habilitados")
+
+    print(json.dumps({"ok": True, "checks": 20}, ensure_ascii=False))
     return 0
 
 

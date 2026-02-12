@@ -163,6 +163,13 @@ select.input{cursor:pointer}
 .modal-overlay.show{display:flex}
 .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;width:440px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.4)}
 .modal h3{margin-bottom:20px}
+.activity-list{display:grid;gap:8px}
+.activity-item{border:1px solid var(--border);background:var(--bg3);border-radius:8px;padding:10px 12px}
+.activity-item .kind{font-size:.68rem;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.activity-item .title{font-weight:600;font-size:.85rem}
+.activity-item .meta{font-size:.78rem;color:var(--text3);margin-top:4px}
+.metric-row{display:flex;gap:8px;flex-wrap:wrap}
+.metric-pill{background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:6px 10px;font-size:.78rem}
 </style>
 </head>
 <body>
@@ -222,6 +229,16 @@ select.input{cursor:pointer}
   </div>
   <div class="loader" id="uploadLoader"><div class="spinner"></div><p style="margin-top:12px;color:var(--text3)">Procesando...</p></div>
   <div id="resultado" style="display:none"></div>
+  <div class="card-grid cols-2 section">
+    <div class="card">
+      <div class="card-title">🧭 Actividad reciente</div>
+      <div id="wsFeed"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🛡️ Estado del sistema</div>
+      <div id="wsSystem"></div>
+    </div>
+  </div>
 </div>
 
 <!-- DASHBOARD -->
@@ -281,7 +298,7 @@ select.input{cursor:pointer}
       </div>
     </div>
   </div>
-  <div class="card"><div class="card-title">Almacenes existentes</div><div style="margin-bottom:10px"><button class="btn btn-sm btn-ghost" onclick="exportWarehousesCsv()">⬇️ Exportar CSV</button></div><div id="warehousesTable"></div></div>
+  <div class="card"><div class="card-title">Usuarios existentes</div><div id="usersStats" class="metric-row" style="margin-bottom:10px"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input class="input" id="userSearch" placeholder="Buscar usuario/nombre..." style="max-width:280px"><select class="input" id="userStatusFilter" style="max-width:180px"><option value="all">Todos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select><button class="btn btn-sm btn-ghost" onclick="exportUsersCsv()">⬇️ Exportar CSV</button><button class="btn btn-sm btn-danger" onclick="bulkSetUsers(false)">🚫 Desactivar seleccionados</button><button class="btn btn-sm btn-success" onclick="bulkSetUsers(true)">✅ Activar seleccionados</button></div><div id="usersTable"></div></div>
 </div>
 
 <!-- ADMIN SETTINGS -->
@@ -464,7 +481,18 @@ async function enviarAnalisis(){
   loader.classList.add('show');resultado.style.display='none';clearCharts();
   const fd=new FormData();fd.append('movimientos',file);
   const m=document.getElementById('maintInput').files[0];if(m)fd.append('mantenimiento',m);
-  try{
+  const feedEl=document.getElementById('wsFeed');
+  const systemEl=document.getElementById('wsSystem');
+  if(!kpiEl||!shortEl||!recentEl||!stepsEl||!feedEl||!systemEl)return;
+    const feed=d.feed||[];
+    feedEl.innerHTML=feed.length?`<div class="activity-list">${feed.map(it=>`<div class="activity-item"><div class="kind">${esc(it.kind||'evento')}</div><div class="title">${esc(it.title||'Sin titulo')}</div><div class="meta">${esc(it.ts||'')} · ${esc(it.meta||'')}</div></div>`).join('')}</div>`:'<p style="color:var(--text3)">Sin actividad reciente.</p>';
+    const sys=d.system||{};
+    const db=d.db||{};
+    const reg=(db.registros||{});
+    systemEl.innerHTML=`<div class="metric-row"><span class="metric-pill">API: <b>${sys.api_ok?'OK':'KO'}</b></span>${db.size_mb!=null?`<span class="metric-pill">DB: <b>${db.size_mb} MB</b></span>`:''}${reg.analisis!=null?`<span class="metric-pill">Analisis: <b>${reg.analisis}</b></span>`:''}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button></div>`;
+    feedEl.innerHTML='';
+    systemEl.innerHTML='';
     const data=await API('/analizar',{method:'POST',body:fd});
     renderResultado(data);
     toast(`Analisis completado - ${data.total_movimientos} mov, ${data.total_anomalias} anom`,'success');
@@ -646,6 +674,19 @@ async function crearUsuario(){
 }
 
 function openEditModal(uid){
+    await loadUsersStats();
+async function loadUsersStats(){
+  const el=document.getElementById('usersStats');
+  if(!el)return;
+  try{
+    const st=await API('/admin/usuarios/stats');
+    el.innerHTML=`<span class="metric-pill">Total: <b>${st.total||0}</b></span>
+      <span class="metric-pill">Activos: <b>${st.active||0}</b></span>
+      <span class="metric-pill">Inactivos: <b>${st.inactive||0}</b></span>
+      <span class="metric-pill">Con proveedores: <b>${st.with_providers||0}</b></span>`;
+  }catch(e){el.innerHTML='';}
+}
+
   API('/admin/usuarios').then(users=>{
     const u=users.find(x=>x.id===uid);if(!u)return;
     document.getElementById('editUid').value=uid;

@@ -113,6 +113,23 @@ def _log_audit(action, target="", extra=""):
     except Exception:
         pass
 
+def _read_recent_audit(limit=30):
+    rows = []
+    if not os.path.exists(AUDIT_LOG_PATH):
+        return rows
+    with open(AUDIT_LOG_PATH, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()[-max(1, min(limit, 500)):]
+    for ln in reversed(lines):
+        parts = ln.rstrip("\n").split("\t")
+        rows.append({
+            "ts": parts[0] if len(parts) > 0 else "",
+            "actor": parts[1] if len(parts) > 1 else "",
+            "action": parts[2] if len(parts) > 2 else "",
+            "target": parts[3] if len(parts) > 3 else "",
+            "extra": parts[4] if len(parts) > 4 else "",
+        })
+    return rows
+
 def _request_identity_key(username=""):
     ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
     return f"{username.lower()}|{ip}"
@@ -285,6 +302,24 @@ def api_admin_listar_usuarios():
     if limit is not None and limit > 0:
         users = users[:limit]
     return jsonify(users)
+
+@app.route("/api/admin/usuarios/stats")
+@permiso_required("manage_users")
+def api_admin_usuarios_stats():
+    users = listar_usuarios(None if _can("manage_warehouses") else _almacen_id())
+    total = len(users)
+    active = sum(1 for u in users if bool(u.get("activo")))
+    inactive = total - active
+    with_providers = sum(1 for u in users if (u.get("proveedores") or []))
+    without_providers = total - with_providers
+    return jsonify({
+        "total": total,
+        "active": active,
+        "inactive": inactive,
+        "with_providers": with_providers,
+        "without_providers": without_providers,
+    })
+
 
 @app.route("/api/admin/usuarios", methods=["POST"])
 @permiso_required("manage_users")
@@ -464,6 +499,28 @@ def api_admin_context():
         "almacenes": listar_almacenes(),
         "proveedores": listar_proveedores(),
         "can_manage_users": _can("manage_users"),
+        "feed": [],
+        "system": {"api_ok": True},
+
+    feed = []
+    for r in recent[:5]:
+        feed.append({
+            "kind": "analysis",
+            "title": f"Analisis: {r.get('archivo') or 'Sin nombre'}",
+            "meta": f"{r.get('total_movimientos', 0)} mov · {r.get('total_anomalias', 0)} anom",
+            "ts": r.get("fecha") or "",
+        })
+    if _can_any("manage_users", "manage_settings", "manage_warehouses"):
+        for row in _read_recent_audit(limit=5):
+            feed.append({
+                "kind": "audit",
+                "title": f"{row.get('action') or 'EVENTO'} · {row.get('actor') or '-'}",
+                "meta": row.get("extra") or row.get("target") or "",
+                "ts": row.get("ts") or "",
+            })
+    payload["feed"] = feed[:8]
+
+        payload["system"]["db_compactable"] = True
         "can_manage_settings": _can("manage_settings"),
         "can_manage_warehouses": _can("manage_warehouses"),
     })
