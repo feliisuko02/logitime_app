@@ -126,6 +126,14 @@ echo         Encontrado
 :: ========================================
 echo   [5/5] Creando instalador...
 
+if not exist "installer" mkdir "installer"
+if not exist "installer\logitime.iss" (
+    echo   [ERROR] Falta installer\logitime.iss
+    echo   Este archivo define como generar Setup_Logitime.exe
+    pause
+    exit /b 1
+)
+
 if not exist "Output" mkdir "Output"
 
 "%ISCC%" "installer\logitime.iss"
@@ -133,6 +141,8 @@ if not exist "Output" mkdir "Output"
 if not exist "Output\Setup_Logitime.exe" (
     echo.
     echo   [ERROR] Inno Setup fallo.
+    echo   ISCC: %ISCC%
+    echo   Script: installer\logitime.iss
     pause
     exit /b 1
 )
