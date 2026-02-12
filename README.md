@@ -43,7 +43,7 @@ python tools/smoke_test.py
 ```
 Si todo está bien, verás algo como:
 ```json
-{"ok": true, "checks": 10}
+{"ok": true, "checks": 12}
 ```
 
 ### 2) Prueba manual en la interfaz
@@ -73,3 +73,11 @@ python tools/checkpoint_commit.py "checkpoint: mejora parcial"
 ```
 
 Si no hay cambios pendientes, no crea commit.
+
+### 5) Mejoras operativas recientes
+- Límite de intentos de login por ventana (anti fuerza bruta básica).
+- Endpoint de salud: `GET /api/health`.
+- Exportación CSV desde administración:
+  - `/api/admin/export/users.csv`
+  - `/api/admin/export/almacenes.csv`
+- Gestión de usuarios con filtros y acciones en lote (activar/desactivar seleccionados).

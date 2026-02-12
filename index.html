@@ -256,6 +256,7 @@ select.input{cursor:pointer}
   <h2 style="margin-bottom:20px">👥 Gestion de Usuarios</h2>
   <div class="card" style="margin-bottom:24px">
     <div class="card-title">Crear usuario</div>
+    <p style="font-size:.82rem;color:var(--text3);margin-bottom:12px">Consejo: usa permisos granulares. Para administrar cuentas activa <b>Gestion usuarios</b>; para ajustes, <b>Ajustes</b>; para almacenes globales, <b>Gestion almacenes</b>.</p>
     <div class="admin-form">
       <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Usuario</label><input class="input" id="newUser" placeholder="usuario"></div>
         <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="newNombre" placeholder="Nombre completo"></div></div>
@@ -265,7 +266,7 @@ select.input{cursor:pointer}
       <button class="btn btn-success" onclick="crearUsuario()">Crear usuario</button>
     </div>
   </div>
-  <div class="card"><div class="card-title">Usuarios existentes</div><div id="usersTable"></div></div>
+  <div class="card"><div class="card-title">Usuarios existentes</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input class="input" id="userSearch" placeholder="Buscar usuario/nombre..." style="max-width:280px"><select class="input" id="userStatusFilter" style="max-width:180px"><option value="all">Todos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select><button class="btn btn-sm btn-ghost" onclick="exportUsersCsv()">⬇️ Exportar CSV</button><button class="btn btn-sm btn-danger" onclick="bulkSetUsers(false)">🚫 Desactivar seleccionados</button><button class="btn btn-sm btn-success" onclick="bulkSetUsers(true)">✅ Activar seleccionados</button></div><div id="usersTable"></div></div>
 </div>
 
 <!-- ADMIN ALMACENES -->
@@ -280,7 +281,7 @@ select.input{cursor:pointer}
       </div>
     </div>
   </div>
-  <div class="card"><div class="card-title">Almacenes existentes</div><div id="warehousesTable"></div></div>
+  <div class="card"><div class="card-title">Almacenes existentes</div><div style="margin-bottom:10px"><button class="btn btn-sm btn-ghost" onclick="exportWarehousesCsv()">⬇️ Exportar CSV</button></div><div id="warehousesTable"></div></div>
 </div>
 
 <!-- ADMIN SETTINGS -->
@@ -352,6 +353,7 @@ function tendIcon(t){return t==='empeorando'?'📈🔴':t==='mejorando'?'📉�
 // ============ AUTH ============
 let currentUser=null;
 let adminContext={almacenes:[],proveedores:[],can_manage_users:false,can_manage_settings:false,can_manage_warehouses:false};
+let lastUsers=[];
 const PERMISOS_LABELS={analizar:"Analizar",dashboard:"Dashboard",operarios:"Operarios",clientes:"Clientes",historial:"Historial",comparar:"Comparar",manage_users:"Gestion usuarios",manage_settings:"Ajustes",manage_warehouses:"Gestion almacenes"};
 
 async function checkAuth(){
@@ -392,7 +394,7 @@ async function doLogin(){
   try{
     const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
     const data=await r.json();
-    if(!r.ok){errEl.textContent=data.error||'Error de login';return}
+    if(!r.ok){errEl.textContent=(data.code==='RATE_LIMIT')?'Demasiados intentos, espera unos minutos':(data.error||'Error de login');return}
     onLogin(data.user);
     document.getElementById('loginPass').value='';
   }catch(e){errEl.textContent='Error de conexion'}
@@ -452,6 +454,8 @@ function showFileSelected(){const f=fileInput.files[0];if(!f)return;document.get
 function clearFile(){fileInput.value='';fileSelected.classList.remove('show');dropZone.style.display=''}
 document.getElementById('searchOps').addEventListener('input',()=>debounce('ops',searchOperarios,300));
 document.getElementById('searchCls').addEventListener('input',()=>debounce('cls',searchClientes,300));
+const _us=document.getElementById('userSearch'); if(_us)_us.addEventListener('input',()=>renderUsersTable());
+const _uf=document.getElementById('userStatusFilter'); if(_uf)_uf.addEventListener('change',()=>renderUsersTable());
 
 async function enviarAnalisis(){
   const file=fileInput.files[0];if(!file)return;
@@ -600,12 +604,32 @@ function fillAdminSelects(){
 // ============ ADMIN: USERS ============
 async function loadUsers(){
   try{
-    const users=await API('/admin/usuarios');
-    const almMap=Object.fromEntries((adminContext.almacenes||[]).map(a=>[a.id,a.nombre]));
-    document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th>Almacen</th><th>Proveedores</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td>${esc(almMap[u.almacen_id]||'-')}</td><td style="font-size:.75rem">${esc((u.proveedores||[]).join(', '))}</td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`
+    lastUsers=await API('/admin/usuarios');
+    renderUsersTable();
   }catch(e){toast(e.message,'error')}
 }
 
+function renderUsersTable(){
+  const users=lastUsers||[];
+  const q=(document.getElementById('userSearch')?.value||'').trim().toLowerCase();
+  const st=document.getElementById('userStatusFilter')?.value||'all';
+  const almMap=Object.fromEntries((adminContext.almacenes||[]).map(a=>[a.id,a.nombre]));
+  const filtered=users.filter(u=>{
+    const okQ=!q||String(u.username||'').toLowerCase().includes(q)||String(u.nombre||'').toLowerCase().includes(q);
+    const okSt=st==='all'||(st==='active'?!!u.activo:!u.activo);
+    return okQ&&okSt;
+  });
+  document.getElementById('usersTable').innerHTML=`<table><thead><tr><th></th><th>ID</th><th>Usuario</th><th>Nombre</th><th>Almacen</th><th>Proveedores</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${filtered.map(u=>`<tr><td><input type="checkbox" class="bulk-user" value="${u.id}"></td><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td>${esc(almMap[u.almacen_id]||'-')}</td><td style="font-size:.75rem">${esc((u.proveedores||[]).join(', '))}</td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`;
+}
+
+async function bulkSetUsers(activo){
+  const ids=Array.from(document.querySelectorAll('.bulk-user:checked')).map(i=>parseInt(i.value)).filter(Boolean);
+  if(!ids.length){toast('Selecciona al menos un usuario','warning');return}
+  try{const r=await API('/admin/usuarios/bulk-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,activo})});toast(`Actualizados: ${r.updated}`,'success');loadUsers()}catch(e){toast(e.message,'error')}
+}
+
+function exportUsersCsv(){window.open('/api/admin/export/users.csv','_blank')}
+function exportWarehousesCsv(){window.open('/api/admin/export/almacenes.csv','_blank')}
 
 async function crearUsuario(){
   const u=document.getElementById('newUser').value.trim(),p=document.getElementById('newPass').value;
@@ -614,6 +638,8 @@ async function crearUsuario(){
   const proveedores=selectedValues('newProveedores');
   const permisos=getPermisos('newPermisos');
   if(!u||!p){toast('Usuario y contrasena requeridos','warning');return}
+  if(p.length<4){toast('Contrasena minima: 4 caracteres','warning');return}
+  if(!almac){toast('Selecciona un almacen','warning');return}
   try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,almacen_id:parseInt(almac)||null,proveedores,permisos})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
 }
 
@@ -634,6 +660,7 @@ function closeEditModal(){document.getElementById('editUserModal').classList.rem
 async function guardarEditUser(){
   const uid=document.getElementById('editUid').value;
   const data={nombre:document.getElementById('editNombre').value,almacen_id:parseInt(document.getElementById('editAlmacen').value)||null,proveedores:selectedValues('editProveedores'),permisos:getPermisos('editPermisos')};
+  if(!data.almacen_id){toast('Selecciona un almacen valido','warning');return}
   const pw=document.getElementById('editPass').value;if(pw)data.password=pw;
   try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Usuario actualizado','success');closeEditModal();loadUsers()}catch(e){toast(e.message,'error')}
 }

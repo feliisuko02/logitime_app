@@ -130,7 +130,27 @@ def main() -> int:
         r = c.get("/api/admin/context")
         assert_ok(r.status_code == 403, "usuario_qa no deberia acceder a contexto admin")
 
-    print(json.dumps({"ok": True, "checks": 10}, ensure_ascii=False))
+        # 11) Health endpoint debe responder ok
+        r = c.get("/api/health")
+        assert_ok(r.status_code == 200, f"Health endpoint fallo: {r.status_code}")
+        h = r.get_json() or {}
+        assert_ok(h.get("ok") is True, "Health endpoint no devolvio ok=true")
+
+        # 12) Crear usuario con almacen invalido debe fallar
+        c.post("/api/auth/logout")
+        c.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        bad_payload = {
+            "username": f"bad_alm_{nonce}",
+            "password": "qa1234",
+            "nombre": "Bad Alm",
+            "almacen_id": 999999,
+            "proveedores": [],
+            "permisos": {"analizar": True},
+        }
+        r = c.post("/api/admin/usuarios", json=bad_payload)
+        assert_ok(r.status_code == 400, f"Esperado 400 por almacen invalido, devolvio {r.status_code}")
+
+    print(json.dumps({"ok": True, "checks": 12}, ensure_ascii=False))
     return 0
 
 

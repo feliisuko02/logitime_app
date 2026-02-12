@@ -3,12 +3,12 @@ Logitime — Servidor Flask v3
 Novedades: Login con sesiones, admin endpoints, settings editables
 """
 
-import os, sys, io, time, traceback, secrets
+import os, sys, io, time, traceback, secrets, threading
 from datetime import timedelta
 import numpy as np
 import pandas as pd
 from functools import wraps
-from flask import Flask, request, jsonify, send_from_directory, send_file, abort, session
+from flask import Flask, request, jsonify, send_from_directory, send_file, abort, session, g
 from flask.json.provider import DefaultJSONProvider
 from database import (
     init_db, guardar_analisis, listar_analisis, obtener_analisis,
@@ -47,6 +47,13 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("LOGITIME_COOKIE_SECURE", "0") == "1"
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=int(os.getenv("LOGITIME_SESSION_HOURS", "12")))
 
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGITIME_LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_WINDOW_SEC = int(os.getenv("LOGITIME_LOGIN_WINDOW_SEC", "300"))
+_login_attempts = {}
+_login_lock = threading.Lock()
+
+AUDIT_LOG_PATH = os.path.join(STATIC_DIR, "data", "audit.log")
+
 
 # ── Errores siempre JSON ──
 @app.errorhandler(Exception)
@@ -83,6 +90,41 @@ def _error(msg, status=400, code=None):
 def _get_json():
     data = request.get_json(silent=True)
     return data if isinstance(data, dict) else {}
+
+def _log_audit(action, target="", extra=""):
+    try:
+        os.makedirs(os.path.dirname(AUDIT_LOG_PATH), exist_ok=True)
+        ts = time.strftime("%Y-%m-%d %H:%M:%S")
+        actor = session.get("username", "anon")
+        with open(AUDIT_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{ts}\t{actor}\t{action}\t{target}\t{extra}\n")
+    except Exception:
+        pass
+
+def _request_identity_key(username=""):
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr) or "unknown"
+    return f"{username.lower()}|{ip}"
+
+def _is_login_limited(username):
+    now = time.time()
+    key = _request_identity_key(username)
+    with _login_lock:
+        attempts = [t for t in _login_attempts.get(key, []) if now - t <= LOGIN_WINDOW_SEC]
+        _login_attempts[key] = attempts
+        return len(attempts) >= LOGIN_MAX_ATTEMPTS
+
+def _record_login_failure(username):
+    now = time.time()
+    key = _request_identity_key(username)
+    with _login_lock:
+        attempts = [t for t in _login_attempts.get(key, []) if now - t <= LOGIN_WINDOW_SEC]
+        attempts.append(now)
+        _login_attempts[key] = attempts
+
+def _clear_login_failures(username):
+    key = _request_identity_key(username)
+    with _login_lock:
+        _login_attempts.pop(key, None)
 
 def permiso_required(nombre):
     def outer(f):
@@ -124,6 +166,22 @@ def _value_error_response(exc):
     return _error(msg, 400)
 
 
+@app.before_request
+def _request_start_timer():
+    g._t0 = time.perf_counter()
+
+
+@app.after_request
+def _log_slow_request(resp):
+    try:
+        dt = (time.perf_counter() - getattr(g, "_t0", time.perf_counter())) * 1000
+        if request.path.startswith("/api"):
+            print(f"[REQ] {request.method} {request.path} -> {resp.status_code} ({dt:.1f} ms)")
+    except Exception:
+        pass
+    return resp
+
+
 # ── Paginas estaticas ──
 
 @app.route("/")
@@ -140,9 +198,13 @@ def api_login():
     password = data.get("password", "")
     if not username or not password:
         return _error("Usuario y password requeridos")
+    if _is_login_limited(username):
+        return _error("Demasiados intentos. Espera unos minutos.", 429, "RATE_LIMIT")
     user = autenticar(username, password)
     if not user:
+        _record_login_failure(username)
         return _error("Credenciales incorrectas", 401)
+    _clear_login_failures(username)
     session.clear()
     session.permanent = True
     session["user_id"] = user["id"]
@@ -208,6 +270,7 @@ def api_admin_crear_usuario():
         almacen_id = _almacen_id()
     try:
         uid = crear_usuario(username, password, nombre, almacen_id=almacen_id, permisos=permisos, proveedores=proveedores)
+        _log_audit("USER_CREATE", str(uid), f"username={username}")
         return jsonify({"ok": True, "id": uid})
     except ValueError as e:
         return _value_error_response(e)
@@ -237,6 +300,7 @@ def api_admin_editar_usuario(uid):
         campos["password"] = data["password"]
     try:
         actualizar_usuario(uid, **campos)
+        _log_audit("USER_UPDATE", str(uid), f"campos={','.join(sorted(campos.keys()))}")
     except ValueError as e:
         return _value_error_response(e)
     return jsonify({"ok": True})
@@ -254,7 +318,35 @@ def api_admin_eliminar_usuario(uid):
     if target.get("username") == "admin":
         return _error("La cuenta admin no se puede desactivar", 403)
     eliminar_usuario(uid)
+    _log_audit("USER_DEACTIVATE", str(uid), f"username={target.get('username','')}")
     return jsonify({"ok": True})
+
+
+@app.route("/api/admin/usuarios/bulk-status", methods=["POST"])
+@permiso_required("manage_users")
+def api_admin_bulk_status():
+    data = _get_json()
+    ids = data.get("ids") or []
+    activo = bool(data.get("activo", True))
+    if not isinstance(ids, list) or not ids:
+        return _error("Debes enviar una lista de ids")
+    updated = 0
+    for raw in ids:
+        try:
+            uid = int(raw)
+        except Exception:
+            continue
+        target = obtener_usuario(uid)
+        if not target:
+            continue
+        if target.get("username") == "admin" and not activo:
+            continue
+        if not _can_manage_target_user(target):
+            continue
+        actualizar_usuario(uid, activo=1 if activo else 0)
+        updated += 1
+    _log_audit("USER_BULK_STATUS", "*", f"updated={updated},activo={activo}")
+    return jsonify({"ok": True, "updated": updated})
 
 
 @app.route("/api/admin/context")
@@ -279,6 +371,7 @@ def api_admin_crear_almacen():
         return _error("Nombre requerido")
     try:
         aid = crear_almacen(nombre)
+        _log_audit("WAREHOUSE_CREATE", str(aid), nombre)
         return jsonify({"ok": True, "id": aid})
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
@@ -296,6 +389,7 @@ def api_admin_editar_almacen(aid):
         return _error("Sin cambios")
     try:
         actualizar_almacen(aid, **cambios)
+        _log_audit("WAREHOUSE_UPDATE", str(aid), f"campos={','.join(sorted(cambios.keys()))}")
         return jsonify({"ok": True})
     except ValueError as e:
         msg = str(e)
@@ -314,6 +408,7 @@ def api_admin_crear_proveedor():
         return _error("Nombre requerido")
     try:
         pid = crear_proveedor(nombre)
+        _log_audit("PROVIDER_CREATE", str(pid), nombre)
         return jsonify({"ok": True, "id": pid})
     except ValueError as e:
         return jsonify({"error": str(e)}), 409
@@ -330,7 +425,40 @@ def api_admin_get_settings():
 def api_admin_save_settings():
     data = _get_json()
     guardar_all_settings(data)
+    _log_audit("SETTINGS_UPDATE", "*", "save_settings")
     return jsonify({"ok": True, "settings": obtener_all_settings()})
+
+
+@app.route("/api/admin/export/users.csv")
+@permiso_required("manage_users")
+def api_admin_export_users_csv():
+    users = listar_usuarios(None if _can("manage_warehouses") else _almacen_id())
+    almacenes = {a["id"]: a["nombre"] for a in listar_almacenes()}
+    rows = []
+    for u in users:
+        rows.append({
+            "id": u.get("id"),
+            "username": u.get("username"),
+            "nombre": u.get("nombre"),
+            "almacen": almacenes.get(u.get("almacen_id"), ""),
+            "activo": int(bool(u.get("activo"))),
+            "proveedores": ", ".join(u.get("proveedores") or []),
+        })
+    df = pd.DataFrame(rows)
+    out = io.StringIO()
+    df.to_csv(out, index=False)
+    return send_file(io.BytesIO(out.getvalue().encode("utf-8")), mimetype="text/csv", as_attachment=True,
+                     download_name="usuarios.csv")
+
+
+@app.route("/api/admin/export/almacenes.csv")
+@permiso_required("manage_warehouses")
+def api_admin_export_warehouses_csv():
+    df = pd.DataFrame(listar_almacenes())
+    out = io.StringIO()
+    df.to_csv(out, index=False)
+    return send_file(io.BytesIO(out.getvalue().encode("utf-8")), mimetype="text/csv", as_attachment=True,
+                     download_name="almacenes.csv")
 
 
 # ── Analizar ──
@@ -499,6 +627,15 @@ def api_hist_cl(nombre):
 @login_required
 def api_db():
     return jsonify(db_stats())
+
+
+@app.route("/api/health")
+def api_health():
+    try:
+        stats = db_stats()
+        return jsonify({"ok": True, "db": "ok", "size_mb": stats.get("size_mb")})
+    except Exception as e:
+        return jsonify({"ok": False, "db": "error", "error": str(e)}), 500
 
 @app.route("/api/db/compactar", methods=["POST"])
 @permiso_required("manage_settings")
