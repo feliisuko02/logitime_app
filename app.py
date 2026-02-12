@@ -3,7 +3,7 @@ Logitime — Servidor Flask v3
 Novedades: Login con sesiones, admin endpoints, settings editables
 """
 
-import os, sys, io, time, traceback, secrets, threading
+import os, sys, io, time, traceback, secrets, threading, uuid
 from datetime import timedelta
 import numpy as np
 import pandas as pd
@@ -50,6 +50,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=int(os.getenv("LOGITI
 LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGITIME_LOGIN_MAX_ATTEMPTS", "5"))
 LOGIN_WINDOW_SEC = int(os.getenv("LOGITIME_LOGIN_WINDOW_SEC", "300"))
 LOGIN_MAX_TRACKED_KEYS = int(os.getenv("LOGITIME_LOGIN_MAX_TRACKED_KEYS", "5000"))
+BULK_STATUS_MAX_IDS = int(os.getenv("LOGITIME_BULK_STATUS_MAX_IDS", "200"))
 _login_attempts = {}
 _login_lock = threading.Lock()
 
@@ -62,7 +63,14 @@ def handle_exception(e):
     tb = traceback.format_exc()
     print(f"[ERROR] {e}\n{tb}")
     verbose = app.debug or os.getenv("LOGITIME_VERBOSE_ERRORS", "0") == "1"
-    return jsonify({"error": str(e) if verbose else "Error interno del servidor"}), 500
+    payload = {
+        "error": str(e) if verbose else "Error interno del servidor",
+        "code": "INTERNAL_ERROR",
+    }
+    rid = getattr(g, "request_id", None)
+    if rid:
+        payload["request_id"] = rid
+    return jsonify(payload), 500
 
 @app.errorhandler(404)
 def handle_404(e):
@@ -86,6 +94,9 @@ def _error(msg, status=400, code=None):
     payload = {"error": msg}
     if code:
         payload["code"] = code
+    rid = getattr(g, "request_id", None)
+    if rid:
+        payload["request_id"] = rid
     return jsonify(payload), status
 
 def _get_json():
@@ -176,6 +187,7 @@ def _value_error_response(exc):
 @app.before_request
 def _request_start_timer():
     g._t0 = time.perf_counter()
+    g.request_id = uuid.uuid4().hex[:12]
 
 
 @app.after_request
@@ -183,9 +195,11 @@ def _log_slow_request(resp):
     try:
         dt = (time.perf_counter() - getattr(g, "_t0", time.perf_counter())) * 1000
         if request.path.startswith("/api"):
-            print(f"[REQ] {request.method} {request.path} -> {resp.status_code} ({dt:.1f} ms)")
+            print(f"[REQ] {getattr(g,'request_id','-')} {request.method} {request.path} -> {resp.status_code} ({dt:.1f} ms)")
     except Exception:
         pass
+    if getattr(g, "request_id", None):
+        resp.headers["X-Request-Id"] = g.request_id
     return resp
 
 
@@ -257,6 +271,19 @@ def api_cambiar_password():
 @permiso_required("manage_users")
 def api_admin_listar_usuarios():
     users = listar_usuarios(None if _can("manage_warehouses") else _almacen_id())
+    q = (request.args.get("q") or "").strip().lower()
+    st = (request.args.get("status") or "all").lower()
+    if q:
+        users = [u for u in users if q in str(u.get("username", "")).lower() or q in str(u.get("nombre", "")).lower()]
+    if st in ("active", "inactive"):
+        want = st == "active"
+        users = [u for u in users if bool(u.get("activo")) == want]
+    offset = request.args.get("offset", type=int)
+    limit = request.args.get("limit", type=int)
+    if offset is not None and offset > 0:
+        users = users[offset:]
+    if limit is not None and limit > 0:
+        users = users[:limit]
     return jsonify(users)
 
 @app.route("/api/admin/usuarios", methods=["POST"])
@@ -337,6 +364,8 @@ def api_admin_bulk_status():
     activo = bool(data.get("activo", True))
     if not isinstance(ids, list) or not ids:
         return _error("Debes enviar una lista de ids")
+    if len(ids) > BULK_STATUS_MAX_IDS:
+        return _error(f"Maximo {BULK_STATUS_MAX_IDS} ids por lote", 400, "BULK_LIMIT")
     updated = 0
     skipped = 0
     for raw in ids:
@@ -383,6 +412,47 @@ def api_admin_audit_recent():
         return jsonify(out)
     except Exception as e:
         return _error(f"No se pudo leer auditoria: {e}", 500)
+
+
+@app.route("/api/admin/audit/recent.csv")
+@permiso_required("manage_settings")
+def api_admin_audit_recent_csv():
+    limit = min(max(request.args.get("limit", 500, type=int), 1), 2000)
+    if not os.path.exists(AUDIT_LOG_PATH):
+        return send_file(io.BytesIO(b"ts,actor,action,target,extra\n"), mimetype="text/csv", as_attachment=True,
+                         download_name="audit_recent.csv")
+    try:
+        with open(AUDIT_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()[-limit:]
+        rows = []
+        for ln in lines:
+            parts = ln.rstrip("\n").split("\t")
+            rows.append({
+                "ts": parts[0] if len(parts) > 0 else "",
+                "actor": parts[1] if len(parts) > 1 else "",
+                "action": parts[2] if len(parts) > 2 else "",
+                "target": parts[3] if len(parts) > 3 else "",
+                "extra": parts[4] if len(parts) > 4 else "",
+            })
+        df = pd.DataFrame(rows or [{"ts": "", "actor": "", "action": "", "target": "", "extra": ""}])
+        out = io.StringIO()
+        df.to_csv(out, index=False)
+        return send_file(io.BytesIO(out.getvalue().encode("utf-8")), mimetype="text/csv", as_attachment=True,
+                         download_name="audit_recent.csv")
+    except Exception as e:
+        return _error(f"No se pudo exportar auditoria: {e}", 500)
+
+
+@app.route("/api/capabilities")
+@login_required
+def api_capabilities():
+    perms = session.get("permisos", {})
+    return jsonify({
+        "can_manage_users": bool(perms.get("manage_users")),
+        "can_manage_settings": bool(perms.get("manage_settings")),
+        "can_manage_warehouses": bool(perms.get("manage_warehouses")),
+        "can_export": bool(perms.get("manage_users") or perms.get("manage_warehouses")),
+    })
 
 
 @app.route("/api/admin/context")

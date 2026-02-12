@@ -302,7 +302,7 @@ select.input{cursor:pointer}
       <div class="setting-row"><label>Tendencia (0-100)</label><input type="number" id="setTrendW" min="0" max="100"></div>
     </div>
   </div>
-  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button><button class="btn btn-ghost" onclick="verAuditoria()">🧾 Ver auditoria</button></div><div id="auditPanel" style="margin-top:16px"></div>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button><button class="btn btn-ghost" onclick="verAuditoria()">🧾 Ver auditoria</button><button class="btn btn-ghost" onclick="exportAuditCsv()">⬇️ Auditoria CSV</button></div><div id="auditPanel" style="margin-top:16px"></div>
 </div>
 
 </main>
@@ -454,8 +454,8 @@ function showFileSelected(){const f=fileInput.files[0];if(!f)return;document.get
 function clearFile(){fileInput.value='';fileSelected.classList.remove('show');dropZone.style.display=''}
 document.getElementById('searchOps').addEventListener('input',()=>debounce('ops',searchOperarios,300));
 document.getElementById('searchCls').addEventListener('input',()=>debounce('cls',searchClientes,300));
-const _us=document.getElementById('userSearch'); if(_us)_us.addEventListener('input',()=>renderUsersTable());
-const _uf=document.getElementById('userStatusFilter'); if(_uf)_uf.addEventListener('change',()=>renderUsersTable());
+const _us=document.getElementById('userSearch'); if(_us)_us.addEventListener('input',()=>debounce('users',loadUsers,250));
+const _uf=document.getElementById('userStatusFilter'); if(_uf)_uf.addEventListener('change',()=>loadUsers());
 
 async function enviarAnalisis(){
   const file=fileInput.files[0];if(!file)return;
@@ -604,7 +604,9 @@ function fillAdminSelects(){
 // ============ ADMIN: USERS ============
 async function loadUsers(){
   try{
-    lastUsers=await API('/admin/usuarios');
+    const q=encodeURIComponent((document.getElementById('userSearch')?.value||'').trim());
+    const status=(document.getElementById('userStatusFilter')?.value||'all');
+    lastUsers=await API(`/admin/usuarios?q=${q}&status=${status}`);
     renderUsersTable();
   }catch(e){toast(e.message,'error')}
 }
@@ -701,6 +703,8 @@ async function toggleAlmacen(id,activo){
   if(!confirm(`Seguro que quieres ${accion} este almacen?`))return;
   try{await API('/admin/almacenes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast(`Almacen ${activo?'activado':'desactivado'}`,'success');await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
 }
+
+function exportAuditCsv(){window.open('/api/admin/audit/recent.csv?limit=2000','_blank')}
 
 async function verAuditoria(){
   try{

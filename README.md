@@ -43,7 +43,7 @@ python tools/smoke_test.py
 ```
 Si todo está bien, verás algo como:
 ```json
-{"ok": true, "checks": 12}
+{"ok": true, "checks": 17}
 ```
 
 ### 2) Prueba manual en la interfaz
@@ -80,4 +80,8 @@ Si no hay cambios pendientes, no crea commit.
 - Exportación CSV desde administración:
   - `/api/admin/export/users.csv`
   - `/api/admin/export/almacenes.csv`
+  - `/api/admin/audit/recent.csv`
+- Endpoint de capacidades: `GET /api/capabilities`.
+- Todas las respuestas incluyen cabecera `X-Request-Id` para trazabilidad en soporte/logs.
+- `POST /api/admin/usuarios/bulk-status` aplica límite de IDs por request para evitar cargas excesivas.
 - Gestión de usuarios con filtros y acciones en lote (activar/desactivar seleccionados).

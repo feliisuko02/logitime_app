@@ -162,7 +162,23 @@ def main() -> int:
         audit_rows = r.get_json() or []
         assert_ok(isinstance(audit_rows, list), "Auditoria no devolvio lista")
 
-    print(json.dumps({"ok": True, "checks": 14}, ensure_ascii=False))
+        # 15) Export de auditoria en CSV
+        r = c.get("/api/admin/audit/recent.csv?limit=50")
+        assert_ok(r.status_code == 200, f"Export auditoria CSV fallo: {r.status_code}")
+        assert_ok("text/csv" in (r.content_type or ""), "Export auditoria no devolvio CSV")
+
+        # 16) Capabilities disponibles para usuario autenticado
+        r = c.get("/api/capabilities")
+        assert_ok(r.status_code == 200, f"Capabilities fallo: {r.status_code}")
+        cap = r.get_json() or {}
+        assert_ok(cap.get("can_manage_users") is True, "Capabilities sin can_manage_users para admin")
+
+        # 17) Bulk con exceso de IDs devuelve 400
+        many = list(range(1, 350))
+        r = c.post("/api/admin/usuarios/bulk-status", json={"ids": many, "activo": True})
+        assert_ok(r.status_code == 400, f"Esperado 400 por limite bulk, devolvio {r.status_code}")
+
+    print(json.dumps({"ok": True, "checks": 17}, ensure_ascii=False))
     return 0
 
 
