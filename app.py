@@ -49,6 +49,7 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=int(os.getenv("LOGITI
 
 LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGITIME_LOGIN_MAX_ATTEMPTS", "5"))
 LOGIN_WINDOW_SEC = int(os.getenv("LOGITIME_LOGIN_WINDOW_SEC", "300"))
+LOGIN_MAX_TRACKED_KEYS = int(os.getenv("LOGITIME_LOGIN_MAX_TRACKED_KEYS", "5000"))
 _login_attempts = {}
 _login_lock = threading.Lock()
 
@@ -109,6 +110,12 @@ def _is_login_limited(username):
     now = time.time()
     key = _request_identity_key(username)
     with _login_lock:
+        if len(_login_attempts) > LOGIN_MAX_TRACKED_KEYS:
+            # Purga simple para evitar crecimiento no acotado.
+            stale_before = now - LOGIN_WINDOW_SEC
+            to_del = [k for k, vals in _login_attempts.items() if not vals or max(vals) < stale_before]
+            for k in to_del:
+                _login_attempts.pop(k, None)
         attempts = [t for t in _login_attempts.get(key, []) if now - t <= LOGIN_WINDOW_SEC]
         _login_attempts[key] = attempts
         return len(attempts) >= LOGIN_MAX_ATTEMPTS
@@ -331,22 +338,51 @@ def api_admin_bulk_status():
     if not isinstance(ids, list) or not ids:
         return _error("Debes enviar una lista de ids")
     updated = 0
+    skipped = 0
     for raw in ids:
         try:
             uid = int(raw)
         except Exception:
+            skipped += 1
             continue
         target = obtener_usuario(uid)
         if not target:
+            skipped += 1
             continue
         if target.get("username") == "admin" and not activo:
+            skipped += 1
             continue
         if not _can_manage_target_user(target):
+            skipped += 1
             continue
         actualizar_usuario(uid, activo=1 if activo else 0)
         updated += 1
-    _log_audit("USER_BULK_STATUS", "*", f"updated={updated},activo={activo}")
-    return jsonify({"ok": True, "updated": updated})
+    _log_audit("USER_BULK_STATUS", "*", f"updated={updated},skipped={skipped},activo={activo}")
+    return jsonify({"ok": True, "updated": updated, "skipped": skipped})
+
+
+@app.route("/api/admin/audit/recent")
+@permiso_required("manage_settings")
+def api_admin_audit_recent():
+    limit = min(max(request.args.get("limit", 100, type=int), 1), 500)
+    if not os.path.exists(AUDIT_LOG_PATH):
+        return jsonify([])
+    try:
+        with open(AUDIT_LOG_PATH, "r", encoding="utf-8") as f:
+            lines = f.readlines()[-limit:]
+        out = []
+        for ln in lines:
+            parts = ln.rstrip("\n").split("\t")
+            out.append({
+                "ts": parts[0] if len(parts) > 0 else "",
+                "actor": parts[1] if len(parts) > 1 else "",
+                "action": parts[2] if len(parts) > 2 else "",
+                "target": parts[3] if len(parts) > 3 else "",
+                "extra": parts[4] if len(parts) > 4 else "",
+            })
+        return jsonify(out)
+    except Exception as e:
+        return _error(f"No se pudo leer auditoria: {e}", 500)
 
 
 @app.route("/api/admin/context")

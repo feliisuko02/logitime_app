@@ -150,7 +150,19 @@ def main() -> int:
         r = c.post("/api/admin/usuarios", json=bad_payload)
         assert_ok(r.status_code == 400, f"Esperado 400 por almacen invalido, devolvio {r.status_code}")
 
-    print(json.dumps({"ok": True, "checks": 12}, ensure_ascii=False))
+        # 13) Accion masiva de usuarios devuelve updated/skipped
+        r = c.post("/api/admin/usuarios/bulk-status", json={"ids": [uqa.get("id"), 999999], "activo": True})
+        assert_ok(r.status_code == 200, f"Bulk status fallo: {r.status_code}")
+        b = r.get_json() or {}
+        assert_ok("updated" in b and "skipped" in b, "Bulk status sin contadores")
+
+        # 14) Auditoria reciente accesible por admin
+        r = c.get("/api/admin/audit/recent?limit=20")
+        assert_ok(r.status_code == 200, f"Auditoria fallo: {r.status_code}")
+        audit_rows = r.get_json() or []
+        assert_ok(isinstance(audit_rows, list), "Auditoria no devolvio lista")
+
+    print(json.dumps({"ok": True, "checks": 14}, ensure_ascii=False))
     return 0
 
 

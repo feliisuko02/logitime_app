@@ -302,7 +302,7 @@ select.input{cursor:pointer}
       <div class="setting-row"><label>Tendencia (0-100)</label><input type="number" id="setTrendW" min="0" max="100"></div>
     </div>
   </div>
-  <button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button><button class="btn btn-ghost" onclick="verAuditoria()">🧾 Ver auditoria</button></div><div id="auditPanel" style="margin-top:16px"></div>
 </div>
 
 </main>
@@ -625,7 +625,7 @@ function renderUsersTable(){
 async function bulkSetUsers(activo){
   const ids=Array.from(document.querySelectorAll('.bulk-user:checked')).map(i=>parseInt(i.value)).filter(Boolean);
   if(!ids.length){toast('Selecciona al menos un usuario','warning');return}
-  try{const r=await API('/admin/usuarios/bulk-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,activo})});toast(`Actualizados: ${r.updated}`,'success');loadUsers()}catch(e){toast(e.message,'error')}
+  try{const r=await API('/admin/usuarios/bulk-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,activo})});toast(`Actualizados: ${r.updated} · Omitidos: ${r.skipped||0}`,'success');loadUsers()}catch(e){toast(e.message,'error')}
 }
 
 function exportUsersCsv(){window.open('/api/admin/export/users.csv','_blank')}
@@ -700,6 +700,14 @@ async function toggleAlmacen(id,activo){
   const accion=activo?'activar':'desactivar';
   if(!confirm(`Seguro que quieres ${accion} este almacen?`))return;
   try{await API('/admin/almacenes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast(`Almacen ${activo?'activado':'desactivado'}`,'success');await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
+
+async function verAuditoria(){
+  try{
+    const rows=await API('/admin/audit/recent?limit=120');
+    const html=rows.length?`<table><thead><tr><th>Fecha</th><th>Usuario</th><th>Accion</th><th>Target</th><th>Detalle</th></tr></thead><tbody>${rows.reverse().map(r=>`<tr><td class="mono">${esc(r.ts)}</td><td>${esc(r.actor)}</td><td>${esc(r.action)}</td><td>${esc(r.target)}</td><td style="font-size:.8rem">${esc(r.extra)}</td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text3)">Sin eventos de auditoria.</p>';
+    document.getElementById('auditPanel').innerHTML=html;
+  }catch(e){toast(e.message,'error')}
 }
 
 // ============ ADMIN: SETTINGS ============
