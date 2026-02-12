@@ -314,14 +314,23 @@ def crear_usuario(username, password, nombre="", almacen_id=None, permisos=None,
     permisos_n = _normalize_permisos(permisos)
     proveedores_n = _sanitize_proveedores(proveedores or [])
     with get_db() as conn:
+        if almacen_id is not None:
+            exists = conn.execute("SELECT 1 FROM almacenes WHERE id=?", (almacen_id,)).fetchone()
+            if not exists:
+                raise ValueError("Almacen no encontrado")
         try:
             cur = conn.execute(
                 "INSERT INTO usuarios (username,password_hash,nombre,rol,almacen_id,permisos,proveedores) VALUES (?,?,?,?,?,?,?)",
                 (username, generate_password_hash(password), nombre, "user", almacen_id,
                  json.dumps(permisos_n, ensure_ascii=False), json.dumps(proveedores_n, ensure_ascii=False)))
             return cur.lastrowid
-        except sqlite3.IntegrityError:
-            raise ValueError(f"El usuario '{username}' ya existe")
+        except sqlite3.IntegrityError as e:
+            msg = str(e).lower()
+            if "username" in msg or "unique" in msg:
+                raise ValueError(f"El usuario '{username}' ya existe")
+            if "foreign key" in msg:
+                raise ValueError("Almacen no encontrado")
+            raise
 
 def listar_usuarios(almacen_id=None):
     with get_db() as conn:
@@ -355,6 +364,10 @@ def actualizar_usuario(uid, **campos):
         if "proveedores" in campos:
             updates["proveedores"] = json.dumps(_sanitize_proveedores(campos["proveedores"]), ensure_ascii=False)
         if updates:
+            if "almacen_id" in updates and updates["almacen_id"] is not None:
+                exists = conn.execute("SELECT 1 FROM almacenes WHERE id=?", (updates["almacen_id"],)).fetchone()
+                if not exists:
+                    raise ValueError("Almacen no encontrado")
             sets = ", ".join(f"{k}=?" for k in updates)
             conn.execute(f"UPDATE usuarios SET {sets} WHERE id=?", (*updates.values(), uid))
 

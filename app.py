@@ -114,6 +114,15 @@ def _can_any(*permisos):
 def _can_manage_target_user(target):
     return _can("manage_warehouses") or target.get("almacen_id") == _almacen_id()
 
+def _value_error_response(exc):
+    msg = str(exc)
+    low = msg.lower()
+    if "no encontrado" in low or "invalido" in low:
+        return _error(msg, 400)
+    if "ya existe" in low:
+        return _error(msg, 409)
+    return _error(msg, 400)
+
 
 # ── Paginas estaticas ──
 
@@ -201,7 +210,7 @@ def api_admin_crear_usuario():
         uid = crear_usuario(username, password, nombre, almacen_id=almacen_id, permisos=permisos, proveedores=proveedores)
         return jsonify({"ok": True, "id": uid})
     except ValueError as e:
-        return jsonify({"error": str(e)}), 409
+        return _value_error_response(e)
 
 @app.route("/api/admin/usuarios/<int:uid>", methods=["PUT"])
 @permiso_required("manage_users")
@@ -226,7 +235,10 @@ def api_admin_editar_usuario(uid):
         if len(data["password"]) < 4:
             return _error("Password minimo 4 caracteres")
         campos["password"] = data["password"]
-    actualizar_usuario(uid, **campos)
+    try:
+        actualizar_usuario(uid, **campos)
+    except ValueError as e:
+        return _value_error_response(e)
     return jsonify({"ok": True})
 
 @app.route("/api/admin/usuarios/<int:uid>", methods=["DELETE"])

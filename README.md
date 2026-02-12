@@ -43,7 +43,7 @@ python tools/smoke_test.py
 ```
 Si todo está bien, verás algo como:
 ```json
-{"ok": true, "checks": 7}
+{"ok": true, "checks": 10}
 ```
 
 ### 2) Prueba manual en la interfaz
@@ -62,6 +62,14 @@ Si todo está bien, verás algo como:
 
 ### 3) Comprobaciones de backend útiles
 ```bash
-python -m py_compile app.py database.py main.py engine.py
+python -m py_compile app.py database.py main.py engine.py tools/smoke_test.py
 ```
 
+### 4) Guardado periódico de progreso (checkpoint)
+Para no perder trabajo en sesiones largas, puedes crear un commit de checkpoint con:
+
+```bash
+python tools/checkpoint_commit.py "checkpoint: mejora parcial"
+```
+
+Si no hay cambios pendientes, no crea commit.
