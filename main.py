@@ -106,7 +106,7 @@ def main():
             raise ImportError("webview module found but not pywebview")
         log.info("pywebview cargado correctamente")
 
-        window = webview.create_window(
+        webview.create_window(
             title="Logitime",
             url=url,
             width=1440,
@@ -115,8 +115,15 @@ def main():
             text_select=True,
         )
         log.info("Ventana creada, iniciando GUI...")
+        t0 = time.time()
         webview.start()
-        log.info("Ventana cerrada")
+        uptime = time.time() - t0
+        log.info(f"Ventana cerrada (duracion: {uptime:.2f}s)")
+        if uptime < 2:
+            # En algunos entornos Windows pywebview puede cerrarse al instante sin
+            # mostrar error claro (runtime/webview2/driver). Hacemos fallback.
+            log.warning("La ventana se cerro casi de inmediato; activando fallback navegador")
+            open_browser(url)
 
     except ImportError:
         log.warning("pywebview no disponible, abriendo en navegador")
