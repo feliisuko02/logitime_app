@@ -397,7 +397,7 @@ function onLogin(user){
   document.querySelectorAll('.admin-only').forEach(el=>el.style.display=perms.manage_users?'flex':'none');
   document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=perms.manage_settings?'block':'none');
   document.querySelectorAll('.superadmin-only').forEach(el=>el.style.display=perms.manage_warehouses?'flex':'none');
-  loadLastAnalysis();loadDbInfo();
+  loadLastAnalysis();loadDbInfo();loadWorkspaceOverview();
   if(perms.manage_users||perms.manage_settings||perms.manage_warehouses)loadAdminContext();
 }
 
@@ -474,6 +474,24 @@ document.getElementById('searchCls').addEventListener('input',()=>debounce('cls'
 const _us=document.getElementById('userSearch'); if(_us)_us.addEventListener('input',()=>debounce('users',loadUsers,250));
 const _uf=document.getElementById('userStatusFilter'); if(_uf)_uf.addEventListener('change',()=>loadUsers());
 
+async function loadWorkspaceOverview(){
+  const feedEl=document.getElementById('wsFeed');
+  const systemEl=document.getElementById('wsSystem');
+  if(!feedEl||!systemEl)return;
+  try{
+    const [d,db]=await Promise.all([API('/workspace/overview'),API('/db')]);
+    const feed=d.feed||[];
+    feedEl.innerHTML=feed.length?`<div class="activity-list">${feed.map(it=>`<div class="activity-item"><div class="kind">${esc(it.kind||'evento')}</div><div class="title">${esc(it.title||'Sin titulo')}</div><div class="meta">${esc(it.ts||'')} · ${esc(it.meta||'')}</div></div>`).join('')}</div>`:'<p style="color:var(--text3)">Sin actividad reciente.</p>';
+    const sys=d.system||{};
+    const reg=(db.registros||{});
+    systemEl.innerHTML=`<div class="metric-row"><span class="metric-pill">API: <b>${sys.api_ok?'OK':'KO'}</b></span>${db.size_mb!=null?`<span class="metric-pill">DB: <b>${db.size_mb} MB</b></span>`:''}${reg.analisis!=null?`<span class="metric-pill">Analisis: <b>${reg.analisis}</b></span>`:''}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button><button class="btn btn-sm btn-ghost" onclick="copyDiagnostics()">📋 Copiar diagnostico</button></div>`;
+  }catch(err){
+    feedEl.innerHTML='';
+    systemEl.innerHTML=`<div class="alert alert-error">${esc(err.message||'No se pudo cargar el estado')}</div>`;
+  }
+}
+
 async function enviarAnalisis(){
   const file=fileInput.files[0];if(!file)return;
   const btn=document.getElementById('btnAnalizar');btn.disabled=true;btn.textContent='Analizando...';
@@ -481,30 +499,16 @@ async function enviarAnalisis(){
   loader.classList.add('show');resultado.style.display='none';clearCharts();
   const fd=new FormData();fd.append('movimientos',file);
   const m=document.getElementById('maintInput').files[0];if(m)fd.append('mantenimiento',m);
-  const feedEl=document.getElementById('wsFeed');
-  const systemEl=document.getElementById('wsSystem');
-  if(!kpiEl||!shortEl||!recentEl||!stepsEl||!feedEl||!systemEl)return;
-    const feed=d.feed||[];
-    feedEl.innerHTML=feed.length?`<div class="activity-list">${feed.map(it=>`<div class="activity-item"><div class="kind">${esc(it.kind||'evento')}</div><div class="title">${esc(it.title||'Sin titulo')}</div><div class="meta">${esc(it.ts||'')} · ${esc(it.meta||'')}</div></div>`).join('')}</div>`:'<p style="color:var(--text3)">Sin actividad reciente.</p>';
-    const sys=d.system||{};
-    const db=d.db||{};
-    const reg=(db.registros||{});
-    systemEl.innerHTML=`<div class="metric-row"><span class="metric-pill">API: <b>${sys.api_ok?'OK':'KO'}</b></span>${db.size_mb!=null?`<span class="metric-pill">DB: <b>${db.size_mb} MB</b></span>`:''}${reg.analisis!=null?`<span class="metric-pill">Analisis: <b>${reg.analisis}</b></span>`:''}</div>
-      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button></div>`;
-    feedEl.innerHTML='';
-    systemEl.innerHTML='';
+  try{
     const data=await API('/analizar',{method:'POST',body:fd});
     renderResultado(data);
     toast(`Analisis completado - ${data.total_movimientos} mov, ${data.total_anomalias} anom`,'success');
     if(data.alertas?.length>0)data.alertas.forEach(a=>toast(a.msg,a.nivel==='critical'?'error':'warning',6000));
-    clearFile();loadLastAnalysis();
+    clearFile();loadLastAnalysis();loadWorkspaceOverview();
   }catch(err){toast(err.message,'error',6000);resultado.innerHTML=`<div class="alert alert-error">${esc(err.message)}</div>`;resultado.style.display='block'}
   finally{loader.classList.remove('show');btn.disabled=false;btn.textContent='Analizar 📊'}
 }
 
-// ============ RENDER RESULTADO ============
-let _anomPageSize=50,_anomShowAll=false;
-      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button><button class="btn btn-sm btn-ghost" onclick="copyDiagnostics()">📋 Copiar diagnostico</button></div>`;
 async function copyDiagnostics(){
   try{
     const d=await API('/diagnostics/environment');
@@ -686,8 +690,6 @@ async function crearUsuario(){
   try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,almacen_id:parseInt(almac)||null,proveedores,permisos})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
 }
 
-function openEditModal(uid){
-    await loadUsersStats();
 async function loadUsersStats(){
   const el=document.getElementById('usersStats');
   if(!el)return;
@@ -700,6 +702,8 @@ async function loadUsersStats(){
   }catch(e){el.innerHTML='';}
 }
 
+async function openEditModal(uid){
+  await loadUsersStats();
   API('/admin/usuarios').then(users=>{
     const u=users.find(x=>x.id===uid);if(!u)return;
     document.getElementById('editUid').value=uid;
