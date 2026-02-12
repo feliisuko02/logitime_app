@@ -49,6 +49,16 @@ echo   ========================================
 %PY% -c "import webview; print('   [OK] Pywebview'); print('       create_window:', hasattr(webview,'create_window'))" 2>nul || echo    [X] Pywebview
 echo.
 
+echo   Verificando sintaxis de codigo:
+%PY% -m py_compile app.py main.py engine.py database.py 2>&1
+if %errorlevel% neq 0 (
+    echo   [X] Hay errores de sintaxis. Corrigelos antes de iniciar.
+    pause
+    exit /b 1
+)
+echo   [OK] Sintaxis correcta
+echo.
+
 echo   Probando componentes:
 %PY% -c "from database import init_db; init_db(); print('   [OK] Base de datos')" 2>&1
 %PY% -c "from engine import analizar_excel; print('   [OK] Motor de analisis')" 2>&1
