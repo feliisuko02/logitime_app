@@ -55,18 +55,23 @@ if exist "build" rmdir /s /q "build"
 if exist "dist" rmdir /s /q "dist"
 if exist "Logitime.spec" del "Logitime.spec"
 
-%PY% -m PyInstaller ^
-    --onefile ^
-    --noconsole ^
-    --name Logitime ^
-    --icon "assets\icon.ico" ^
-    --add-data "index.html;." ^
-    --add-data "assets\icon.png;assets" ^
-    --collect-all webview ^
-    --hidden-import webview ^
-    --hidden-import bottle ^
-    --hidden-import cryptography ^
-    main.py
+set "ICON_ARG="
+set "DATA_HTML=--add-data index.html;."
+set "DATA_ICON="
+
+if exist "assets\icon.ico" (
+    set "ICON_ARG=--icon assets\icon.ico"
+) else (
+    echo         [WARN] No se encontro assets\icon.ico ^(se compila sin icono .ico^)
+)
+
+if exist "assets\icon.png" (
+    set "DATA_ICON=--add-data assets\icon.png;assets"
+) else (
+    echo         [WARN] No se encontro assets\icon.png ^(se omite recurso opcional^)
+)
+
+%PY% -m PyInstaller --onefile --noconsole --name Logitime !ICON_ARG! !DATA_HTML! !DATA_ICON! --collect-all webview --hidden-import webview --hidden-import bottle --hidden-import cryptography main.py
 
 if not exist "dist\Logitime.exe" (
     echo.
@@ -121,6 +126,14 @@ echo         Encontrado
 :: ========================================
 echo   [5/5] Creando instalador...
 
+if not exist "installer" mkdir "installer"
+if not exist "installer\logitime.iss" (
+    echo   [ERROR] Falta installer\logitime.iss
+    echo   Este archivo define como generar Setup_Logitime.exe
+    pause
+    exit /b 1
+)
+
 if not exist "Output" mkdir "Output"
 
 "%ISCC%" "installer\logitime.iss"
@@ -128,6 +141,8 @@ if not exist "Output" mkdir "Output"
 if not exist "Output\Setup_Logitime.exe" (
     echo.
     echo   [ERROR] Inno Setup fallo.
+    echo   ISCC: %ISCC%
+    echo   Script: installer\logitime.iss
     pause
     exit /b 1
 )

@@ -490,33 +490,67 @@ def api_capabilities():
         "can_export": bool(perms.get("manage_users") or perms.get("manage_warehouses")),
     })
 
+@app.route("/api/admin/context")
+@login_required
+def api_admin_context():
+    if not _can_any("manage_users", "manage_settings", "manage_warehouses"):
+        return _error("No tienes permisos de administracion", 403)
+    return jsonify({
+        "almacenes": listar_almacenes(),
+        "proveedores": listar_proveedores(),
+        "can_manage_users": _can("manage_users"),
+        "can_manage_settings": _can("manage_settings"),
+        "can_manage_warehouses": _can("manage_warehouses"),
+    })
 
+
+@app.route("/api/workspace/overview")
+@login_required
+def api_workspace_overview():
     """Resumen operativo para la pantalla Inicio."""
-        {
-            "id": "upload",
-            "label": "Cargar nuevo analisis",
-            "page": "upload",
-            "desc": "Sube el Excel y genera indicadores en minutos.",
-            "enabled": bool(permisos.get("analizar", False)),
-        },
-        {
-            "id": "dashboard",
-            "label": "Revisar dashboard",
-            "page": "dashboard",
-            "desc": "Consulta tendencia, top operarios y clientes.",
-            "enabled": bool(permisos.get("dashboard", False)),
-        },
-        {
-            "id": "historial",
-            "label": "Abrir historial",
-            "page": "historial",
-            "desc": "Recupera analisis recientes y exporta reportes.",
-            "enabled": bool(permisos.get("historial", False)),
-        },
+    recent = listar_analisis(5, _uid(), _can_global_scope())
+    kpis = {
+        "analisis": len(recent),
+        "movimientos": int(sum((r.get("total_movimientos") or 0) for r in recent)),
+        "anomalias": int(sum((r.get("total_anomalias") or 0) for r in recent)),
+    }
+    permisos = _permisos()
+    payload = {
+        "kpis": kpis,
+        "shortcuts": [
+            {
+                "id": "upload",
+                "label": "Cargar nuevo analisis",
+                "page": "upload",
+                "desc": "Sube el Excel y genera indicadores en minutos.",
+                "enabled": bool(permisos.get("analizar", False)),
+            },
+            {
+                "id": "dashboard",
+                "label": "Revisar dashboard",
+                "page": "dashboard",
+                "desc": "Consulta tendencia, top operarios y clientes.",
+                "enabled": bool(permisos.get("dashboard", False)),
+            },
+            {
+                "id": "historial",
+                "label": "Abrir historial",
+                "page": "historial",
+                "desc": "Recupera analisis recientes y exporta reportes.",
+                "enabled": bool(permisos.get("historial", False)),
+            },
+        ],
         "user": {
             "nombre": session.get("nombre") or session.get("username") or "",
             "username": session.get("username") or "",
         },
+        "system": {
+            "api_ok": True,
+        },
+    }
+
+    feed = []
+    for r in recent[:5]:
         feed.append(
             {
                 "kind": "analysis",
@@ -526,6 +560,8 @@ def api_capabilities():
             }
         )
 
+    if _can_any("manage_users", "manage_settings", "manage_warehouses"):
+        for row in _read_recent_audit(limit=5):
             action = row.get("action") or "EVENTO"
             actor = row.get("actor") or "-"
             feed.append(
@@ -537,21 +573,12 @@ def api_capabilities():
                 }
             )
 
-
-    if _can_any("manage_users", "manage_settings", "manage_warehouses"):
-        for row in _read_recent_audit(limit=5):
-            feed.append({
-                "kind": "audit",
-                "title": f"{row.get('action') or 'EVENTO'} · {row.get('actor') or '-'}",
-                "meta": row.get("extra") or row.get("target") or "",
-                "ts": row.get("ts") or "",
-            })
     payload["feed"] = feed[:8]
 
-        payload["system"]["db_compactable"] = True
-        "can_manage_settings": _can("manage_settings"),
-        "can_manage_warehouses": _can("manage_warehouses"),
-    })
+    payload["system"]["db_compactable"] = True
+
+    return jsonify(payload)
+
 
 @app.route("/api/admin/almacenes", methods=["POST"])
 @permiso_required("manage_warehouses")
