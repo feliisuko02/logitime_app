@@ -48,6 +48,7 @@ a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
 .nav-btn:hover{background:var(--bg3);color:var(--text)}.nav-btn.active{background:var(--accent);color:#fff}
 .nav-btn .ico{font-size:1.1rem;width:24px;text-align:center}
 .nav-btn.admin-only{display:none}
+.nav-btn.superadmin-only{display:none}
 .sidebar-bottom{margin-top:auto;display:flex;flex-direction:column;gap:8px}
 .sidebar-footer{padding:8px;font-size:.75rem;color:var(--text3);border-top:1px solid var(--border);padding-top:12px}
 .theme-toggle,.logout-btn{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);background:var(--bg3);color:var(--text2);cursor:pointer;border-radius:8px;font:500 .8rem var(--font);transition:all .15s;width:100%}
@@ -162,6 +163,13 @@ select.input{cursor:pointer}
 .modal-overlay.show{display:flex}
 .modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:32px;width:440px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,.4)}
 .modal h3{margin-bottom:20px}
+.activity-list{display:grid;gap:8px}
+.activity-item{border:1px solid var(--border);background:var(--bg3);border-radius:8px;padding:10px 12px}
+.activity-item .kind{font-size:.68rem;letter-spacing:.4px;text-transform:uppercase;color:var(--text3);margin-bottom:4px}
+.activity-item .title{font-weight:600;font-size:.85rem}
+.activity-item .meta{font-size:.78rem;color:var(--text3);margin-top:4px}
+.metric-row{display:flex;gap:8px;flex-wrap:wrap}
+.metric-pill{background:var(--bg3);border:1px solid var(--border);border-radius:999px;padding:6px 10px;font-size:.78rem}
 </style>
 </head>
 <body>
@@ -177,7 +185,7 @@ select.input{cursor:pointer}
     <div class="field"><label>Usuario</label><input class="input" id="loginUser" autocomplete="username"></div>
     <div class="field"><label>Contrasena</label><input class="input" id="loginPass" type="password" autocomplete="current-password"></div>
     <button class="btn btn-primary btn-lg" style="width:100%;margin-top:8px" id="loginBtn" onclick="doLogin()">Entrar</button>
-    <p style="text-align:center;margin-top:20px;font-size:.75rem;color:var(--text3)">Primera vez? admin / admin123</p>
+    <p style="text-align:center;margin-top:20px;font-size:.75rem;color:var(--text3)">Contacta con el administrador para activar tu cuenta</p>
   </div>
 </div>
 
@@ -196,6 +204,7 @@ select.input{cursor:pointer}
   <button class="nav-btn" data-page="historial"><span class="ico">📋</span>Historial</button>
   <button class="nav-btn" data-page="comparar"><span class="ico">🔀</span>Comparar</button>
   <button class="nav-btn admin-only" data-page="admin-users"><span class="ico">👥</span>Usuarios</button>
+  <button class="nav-btn superadmin-only" data-page="admin-warehouses"><span class="ico">🏬</span>Almacenes</button>
   <button class="nav-btn admin-only" data-page="admin-settings"><span class="ico">⚙️</span>Ajustes</button>
   <div class="sidebar-bottom">
     <button class="theme-toggle" onclick="toggleTheme()"><span id="themeIcon">🌙</span><span id="themeLabel">Modo claro</span></button>
@@ -220,6 +229,16 @@ select.input{cursor:pointer}
   </div>
   <div class="loader" id="uploadLoader"><div class="spinner"></div><p style="margin-top:12px;color:var(--text3)">Procesando...</p></div>
   <div id="resultado" style="display:none"></div>
+  <div class="card-grid cols-2 section">
+    <div class="card">
+      <div class="card-title">🧭 Actividad reciente</div>
+      <div id="wsFeed"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🛡️ Estado del sistema</div>
+      <div id="wsSystem"></div>
+    </div>
+  </div>
 </div>
 
 <!-- DASHBOARD -->
@@ -254,15 +273,32 @@ select.input{cursor:pointer}
   <h2 style="margin-bottom:20px">👥 Gestion de Usuarios</h2>
   <div class="card" style="margin-bottom:24px">
     <div class="card-title">Crear usuario</div>
+    <p style="font-size:.82rem;color:var(--text3);margin-bottom:12px">Consejo: usa permisos granulares. Para administrar cuentas activa <b>Gestion usuarios</b>; para ajustes, <b>Ajustes</b>; para almacenes globales, <b>Gestion almacenes</b>.</p>
     <div class="admin-form">
       <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Usuario</label><input class="input" id="newUser" placeholder="usuario"></div>
         <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="newNombre" placeholder="Nombre completo"></div></div>
-      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Contrasena</label><input class="input" id="newPass" type="text" placeholder="minimo 4 caracteres"></div>
-        <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="newRol"><option value="user">Usuario</option><option value="admin">Admin</option></select></div></div>
+      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Contrasena</label><input class="input" id="newPass" type="text" placeholder="minimo 4 caracteres"></div></div>
+      <div class="row"><div><label style="font-size:.8rem;color:var(--text3)">Almacen</label><select class="input" id="newAlmacen"></select></div><div><label style="font-size:.8rem;color:var(--text3)">Proveedores permitidos</label><select class="input" id="newProveedores" multiple size="4"></select></div></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Permisos</label><div id="newPermisos" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px"></div></div>
       <button class="btn btn-success" onclick="crearUsuario()">Crear usuario</button>
     </div>
   </div>
-  <div class="card"><div class="card-title">Usuarios existentes</div><div id="usersTable"></div></div>
+  <div class="card"><div class="card-title">Usuarios existentes</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input class="input" id="userSearch" placeholder="Buscar usuario/nombre..." style="max-width:280px"><select class="input" id="userStatusFilter" style="max-width:180px"><option value="all">Todos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select><button class="btn btn-sm btn-ghost" onclick="exportUsersCsv()">⬇️ Exportar CSV</button><button class="btn btn-sm btn-danger" onclick="bulkSetUsers(false)">🚫 Desactivar seleccionados</button><button class="btn btn-sm btn-success" onclick="bulkSetUsers(true)">✅ Activar seleccionados</button></div><div id="usersTable"></div></div>
+</div>
+
+<!-- ADMIN ALMACENES -->
+<div id="page-admin-warehouses" class="page">
+  <h2 style="margin-bottom:20px">🏬 Gestion de almacenes</h2>
+  <div class="card" style="margin-bottom:24px">
+    <div class="card-title">Crear almacen</div>
+    <div class="admin-form">
+      <div class="row">
+        <div><label style="font-size:.8rem;color:var(--text3)">Nombre del almacen</label><input class="input" id="newWarehouseName" placeholder="Ej: Almacen Valencia"></div>
+        <div style="display:flex;align-items:flex-end"><button class="btn btn-success" onclick="crearAlmacen()">Crear almacen</button></div>
+      </div>
+    </div>
+  </div>
+  <div class="card"><div class="card-title">Usuarios existentes</div><div id="usersStats" class="metric-row" style="margin-bottom:10px"></div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px"><input class="input" id="userSearch" placeholder="Buscar usuario/nombre..." style="max-width:280px"><select class="input" id="userStatusFilter" style="max-width:180px"><option value="all">Todos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select><button class="btn btn-sm btn-ghost" onclick="exportUsersCsv()">⬇️ Exportar CSV</button><button class="btn btn-sm btn-danger" onclick="bulkSetUsers(false)">🚫 Desactivar seleccionados</button><button class="btn btn-sm btn-success" onclick="bulkSetUsers(true)">✅ Activar seleccionados</button></div><div id="usersTable"></div></div>
 </div>
 
 <!-- ADMIN SETTINGS -->
@@ -283,7 +319,7 @@ select.input{cursor:pointer}
       <div class="setting-row"><label>Tendencia (0-100)</label><input type="number" id="setTrendW" min="0" max="100"></div>
     </div>
   </div>
-  <button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button>
+  <div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn btn-primary btn-lg" onclick="guardarSettings()">💾 Guardar ajustes</button><button class="btn btn-ghost" onclick="verAuditoria()">🧾 Ver auditoria</button><button class="btn btn-ghost" onclick="exportAuditCsv()">⬇️ Auditoria CSV</button></div><div id="auditPanel" style="margin-top:16px"></div>
 </div>
 
 </main>
@@ -296,7 +332,9 @@ select.input{cursor:pointer}
     <input type="hidden" id="editUid">
     <div style="display:grid;gap:12px">
       <div><label style="font-size:.8rem;color:var(--text3)">Nombre</label><input class="input" id="editNombre"></div>
-      <div><label style="font-size:.8rem;color:var(--text3)">Rol</label><select class="input" id="editRol"><option value="user">Usuario</option><option value="admin">Admin</option></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Almacen</label><select class="input" id="editAlmacen"></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Proveedores permitidos</label><select class="input" id="editProveedores" multiple size="4"></select></div>
+      <div><label style="font-size:.8rem;color:var(--text3)">Permisos</label><div id="editPermisos" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px"></div></div>
       <div><label style="font-size:.8rem;color:var(--text3)">Nueva contrasena (dejar vacio para no cambiar)</label><input class="input" id="editPass" type="text" placeholder="****"></div>
       <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px">
         <button class="btn btn-ghost" onclick="closeEditModal()">Cancelar</button>
@@ -331,6 +369,9 @@ function tendIcon(t){return t==='empeorando'?'📈🔴':t==='mejorando'?'📉�
 
 // ============ AUTH ============
 let currentUser=null;
+let adminContext={almacenes:[],proveedores:[],can_manage_users:false,can_manage_settings:false,can_manage_warehouses:false};
+let lastUsers=[];
+const PERMISOS_LABELS={analizar:"Analizar",dashboard:"Dashboard",operarios:"Operarios",clientes:"Clientes",historial:"Historial",comparar:"Comparar",manage_users:"Gestion usuarios",manage_settings:"Ajustes",manage_warehouses:"Gestion almacenes"};
 
 async function checkAuth(){
   try{
@@ -351,12 +392,13 @@ function onLogin(user){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appShell').classList.add('show');
   document.getElementById('userDisplay').textContent=user.nombre||user.username;
-  document.getElementById('roleDisplay').textContent=user.rol==='admin'?'Administrador':'Usuario';
-  // Show admin buttons
-  const isAdmin=user.rol==='admin';
-  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=isAdmin?'flex':'none');
-  document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=isAdmin?'block':'none');
+  const perms=user.permisos||{};
+  document.getElementById('roleDisplay').textContent='Permisos personalizados';
+  document.querySelectorAll('.admin-only').forEach(el=>el.style.display=perms.manage_users?'flex':'none');
+  document.querySelectorAll('.admin-only-inline').forEach(el=>el.style.display=perms.manage_settings?'block':'none');
+  document.querySelectorAll('.superadmin-only').forEach(el=>el.style.display=perms.manage_warehouses?'flex':'none');
   loadLastAnalysis();loadDbInfo();
+  if(perms.manage_users||perms.manage_settings||perms.manage_warehouses)loadAdminContext();
 }
 
 async function doLogin(){
@@ -369,7 +411,7 @@ async function doLogin(){
   try{
     const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user,password:pass})});
     const data=await r.json();
-    if(!r.ok){errEl.textContent=data.error||'Error de login';return}
+    if(!r.ok){errEl.textContent=(data.code==='RATE_LIMIT')?'Demasiados intentos, espera unos minutos':(data.error||'Error de login');return}
     onLogin(data.user);
     document.getElementById('loginPass').value='';
   }catch(e){errEl.textContent='Error de conexion'}
@@ -398,6 +440,7 @@ document.querySelectorAll('.nav-btn').forEach(btn=>{
     if(pg==='historial')loadHistorial();
     if(pg==='comparar')loadCompareSelects();
     if(pg==='admin-users')loadUsers();
+    if(pg==='admin-warehouses')loadWarehouses();
     if(pg==='admin-settings')loadSettings();
   });
 });
@@ -428,6 +471,8 @@ function showFileSelected(){const f=fileInput.files[0];if(!f)return;document.get
 function clearFile(){fileInput.value='';fileSelected.classList.remove('show');dropZone.style.display=''}
 document.getElementById('searchOps').addEventListener('input',()=>debounce('ops',searchOperarios,300));
 document.getElementById('searchCls').addEventListener('input',()=>debounce('cls',searchClientes,300));
+const _us=document.getElementById('userSearch'); if(_us)_us.addEventListener('input',()=>debounce('users',loadUsers,250));
+const _uf=document.getElementById('userStatusFilter'); if(_uf)_uf.addEventListener('change',()=>loadUsers());
 
 async function enviarAnalisis(){
   const file=fileInput.files[0];if(!file)return;
@@ -436,7 +481,18 @@ async function enviarAnalisis(){
   loader.classList.add('show');resultado.style.display='none';clearCharts();
   const fd=new FormData();fd.append('movimientos',file);
   const m=document.getElementById('maintInput').files[0];if(m)fd.append('mantenimiento',m);
-  try{
+  const feedEl=document.getElementById('wsFeed');
+  const systemEl=document.getElementById('wsSystem');
+  if(!kpiEl||!shortEl||!recentEl||!stepsEl||!feedEl||!systemEl)return;
+    const feed=d.feed||[];
+    feedEl.innerHTML=feed.length?`<div class="activity-list">${feed.map(it=>`<div class="activity-item"><div class="kind">${esc(it.kind||'evento')}</div><div class="title">${esc(it.title||'Sin titulo')}</div><div class="meta">${esc(it.ts||'')} · ${esc(it.meta||'')}</div></div>`).join('')}</div>`:'<p style="color:var(--text3)">Sin actividad reciente.</p>';
+    const sys=d.system||{};
+    const db=d.db||{};
+    const reg=(db.registros||{});
+    systemEl.innerHTML=`<div class="metric-row"><span class="metric-pill">API: <b>${sys.api_ok?'OK':'KO'}</b></span>${db.size_mb!=null?`<span class="metric-pill">DB: <b>${db.size_mb} MB</b></span>`:''}${reg.analisis!=null?`<span class="metric-pill">Analisis: <b>${reg.analisis}</b></span>`:''}</div>
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button></div>`;
+    feedEl.innerHTML='';
+    systemEl.innerHTML='';
     const data=await API('/analizar',{method:'POST',body:fd});
     renderResultado(data);
     toast(`Analisis completado - ${data.total_movimientos} mov, ${data.total_anomalias} anom`,'success');
@@ -448,6 +504,19 @@ async function enviarAnalisis(){
 
 // ============ RENDER RESULTADO ============
 let _anomPageSize=50,_anomShowAll=false;
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button><button class="btn btn-sm btn-ghost" onclick="copyDiagnostics()">📋 Copiar diagnostico</button></div>`;
+async function copyDiagnostics(){
+  try{
+    const d=await API('/diagnostics/environment');
+    const txt=JSON.stringify(d,null,2);
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(txt);
+      toast('Diagnostico copiado al portapapeles','success');
+    }else{
+      prompt('Copia este diagnostico',txt);
+    }
+  }catch(e){toast('No se pudo obtener diagnostico: '+e.message,'error')}
+}
 
 function renderResultado(d){
   const el=document.getElementById('resultado');clearCharts();
@@ -542,22 +611,102 @@ async function loadCompareSelects(){try{const list=await API('/analisis');const 
 
 async function doCompare(){const idA=document.getElementById('compareA').value,idB=document.getElementById('compareB').value;if(!idA||!idB||idA===idB){toast('Selecciona dos diferentes','warning');return}const el=document.getElementById('compareResult');el.innerHTML='<div class="loader show"><div class="spinner"></div></div>';clearCharts();try{const d=await API(`/comparar/${idA}/${idB}`);const a=d.a,b=d.b;const allCodes=[...new Set([...(a.operarios||[]).map(o=>o.codigo),...(b.operarios||[]).map(o=>o.codigo)])];const mA=Object.fromEntries((a.operarios||[]).map(o=>[o.codigo,o]));const mB=Object.fromEntries((b.operarios||[]).map(o=>[o.codigo,o]));el.innerHTML=`<div class="card section"><div class="card-title">📊 Resumen</div><table><thead><tr><th>Metrica</th><th class="text-right">A</th><th class="text-right">B</th></tr></thead><tbody><tr><td>Movimientos</td><td class="text-right mono">${a.total_movimientos}</td><td class="text-right mono">${b.total_movimientos}</td></tr><tr><td>Anomalias</td><td class="text-right mono">${a.total_anomalias}</td><td class="text-right mono">${b.total_anomalias}</td></tr><tr><td>Tasa</td><td class="text-right mono">${a.tasa_anomalias_pct}%</td><td class="text-right mono">${b.tasa_anomalias_pct}%</td></tr></tbody></table></div><div class="card section"><div class="card-title">📊 Visual</div><div class="chart-container"><canvas id="chartCompare"></canvas></div></div>`;mkChart('chartCompare',{type:'bar',data:{labels:allCodes.map(c=>esc((mA[c]||mB[c])?.nombre||c)),datasets:[{label:'A: Anom',data:allCodes.map(c=>mA[c]?.total_anomalias||0),backgroundColor:'rgba(239,68,68,.6)'},{label:'B: Anom',data:allCodes.map(c=>mB[c]?.total_anomalias||0),backgroundColor:'rgba(59,130,246,.6)'}]},options:{responsive:true,maintainAspectRatio:false,scales:{y:{beginAtZero:true},x:{ticks:{color:'#64748b'}}}}})}catch(e){el.innerHTML=`<div class="alert alert-error">${esc(e.message)}</div>`}}
 
+async function loadAdminContext(){
+  try{
+    adminContext=await API('/admin/context');
+    fillAdminSelects();
+  }catch(e){toast(e.message,'error')}
+}
+
+function fillPermisos(containerId,permisos={}){
+  const el=document.getElementById(containerId);
+  if(!el)return;
+  el.innerHTML=Object.entries(PERMISOS_LABELS).map(([k,label])=>`<label style="display:flex;gap:8px;align-items:center;font-size:.85rem"><input type="checkbox" data-perm="${k}" ${permisos[k]?'checked':''}> ${label}</label>`).join('');
+}
+
+function getPermisos(containerId){
+  const out={};
+  document.querySelectorAll(`#${containerId} [data-perm]`).forEach(i=>out[i.dataset.perm]=i.checked);
+  return out;
+}
+
+function selectedValues(id){
+  return Array.from(document.getElementById(id).selectedOptions).map(o=>o.value);
+}
+
+function fillAdminSelects(){
+  const almacenes=(adminContext.almacenes||[]).map(a=>`<option value="${a.id}">${esc(a.nombre)}</option>`).join('');
+  const proveedores=(adminContext.proveedores||[]).map(p=>`<option value="${esc(p.nombre)}">${esc(p.nombre)}</option>`).join('');
+  ['newAlmacen','editAlmacen'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=almacenes});
+  ['newProveedores','editProveedores'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerHTML=proveedores});
+  fillPermisos('newPermisos',{analizar:true,dashboard:true,operarios:true,clientes:true,historial:true,comparar:true});
+}
+
 // ============ ADMIN: USERS ============
-async function loadUsers(){try{const users=await API('/admin/usuarios');document.getElementById('usersTable').innerHTML=`<table><thead><tr><th>ID</th><th>Usuario</th><th>Nombre</th><th class="text-center">Rol</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td class="text-center"><span class="badge ${u.rol==='admin'?'badge-purple':'badge-blue'}">${esc(u.rol)}</span></td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`}catch(e){toast(e.message,'error')}}
+async function loadUsers(){
+  try{
+    const q=encodeURIComponent((document.getElementById('userSearch')?.value||'').trim());
+    const status=(document.getElementById('userStatusFilter')?.value||'all');
+    lastUsers=await API(`/admin/usuarios?q=${q}&status=${status}`);
+    renderUsersTable();
+  }catch(e){toast(e.message,'error')}
+}
+
+function renderUsersTable(){
+  const users=lastUsers||[];
+  const q=(document.getElementById('userSearch')?.value||'').trim().toLowerCase();
+  const st=document.getElementById('userStatusFilter')?.value||'all';
+  const almMap=Object.fromEntries((adminContext.almacenes||[]).map(a=>[a.id,a.nombre]));
+  const filtered=users.filter(u=>{
+    const okQ=!q||String(u.username||'').toLowerCase().includes(q)||String(u.nombre||'').toLowerCase().includes(q);
+    const okSt=st==='all'||(st==='active'?!!u.activo:!u.activo);
+    return okQ&&okSt;
+  });
+  document.getElementById('usersTable').innerHTML=`<table><thead><tr><th></th><th>ID</th><th>Usuario</th><th>Nombre</th><th>Almacen</th><th>Proveedores</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${filtered.map(u=>`<tr><td><input type="checkbox" class="bulk-user" value="${u.id}"></td><td class="mono">${u.id}</td><td class="mono" style="font-weight:600">${esc(u.username)}</td><td>${esc(u.nombre)}</td><td>${esc(almMap[u.almacen_id]||'-')}</td><td style="font-size:.75rem">${esc((u.proveedores||[]).join(', '))}</td><td class="text-center">${u.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((u.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:4px"><button class="btn btn-sm btn-ghost" onclick="openEditModal(${u.id})">✏️</button>${u.activo?`<button class="btn btn-sm btn-danger" onclick="deactivateUser(${u.id},'${esc(u.username)}')">🚫</button>`:`<button class="btn btn-sm btn-success" onclick="reactivateUser(${u.id})">✅</button>`}</td></tr>`).join('')}</tbody></table>`;
+}
+
+async function bulkSetUsers(activo){
+  const ids=Array.from(document.querySelectorAll('.bulk-user:checked')).map(i=>parseInt(i.value)).filter(Boolean);
+  if(!ids.length){toast('Selecciona al menos un usuario','warning');return}
+  try{const r=await API('/admin/usuarios/bulk-status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids,activo})});toast(`Actualizados: ${r.updated} · Omitidos: ${r.skipped||0}`,'success');loadUsers()}catch(e){toast(e.message,'error')}
+}
+
+function exportUsersCsv(){window.open('/api/admin/export/users.csv','_blank')}
+function exportWarehousesCsv(){window.open('/api/admin/export/almacenes.csv','_blank')}
 
 async function crearUsuario(){
   const u=document.getElementById('newUser').value.trim(),p=document.getElementById('newPass').value;
-  const n=document.getElementById('newNombre').value.trim(),r=document.getElementById('newRol').value;
+  const n=document.getElementById('newNombre').value.trim();
+  const almac=document.getElementById('newAlmacen').value;
+  const proveedores=selectedValues('newProveedores');
+  const permisos=getPermisos('newPermisos');
   if(!u||!p){toast('Usuario y contrasena requeridos','warning');return}
-  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,rol:r})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
+  if(p.length<4){toast('Contrasena minima: 4 caracteres','warning');return}
+  if(!almac){toast('Selecciona un almacen','warning');return}
+  try{await API('/admin/usuarios',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,nombre:n,almacen_id:parseInt(almac)||null,proveedores,permisos})});toast('Usuario creado','success');document.getElementById('newUser').value='';document.getElementById('newPass').value='';document.getElementById('newNombre').value='';loadUsers()}catch(e){toast(e.message,'error')}
 }
 
 function openEditModal(uid){
+    await loadUsersStats();
+async function loadUsersStats(){
+  const el=document.getElementById('usersStats');
+  if(!el)return;
+  try{
+    const st=await API('/admin/usuarios/stats');
+    el.innerHTML=`<span class="metric-pill">Total: <b>${st.total||0}</b></span>
+      <span class="metric-pill">Activos: <b>${st.active||0}</b></span>
+      <span class="metric-pill">Inactivos: <b>${st.inactive||0}</b></span>
+      <span class="metric-pill">Con proveedores: <b>${st.with_providers||0}</b></span>`;
+  }catch(e){el.innerHTML='';}
+}
+
   API('/admin/usuarios').then(users=>{
     const u=users.find(x=>x.id===uid);if(!u)return;
     document.getElementById('editUid').value=uid;
     document.getElementById('editNombre').value=u.nombre||'';
-    document.getElementById('editRol').value=u.rol;
+    document.getElementById('editAlmacen').value=u.almacen_id||'';
+    fillPermisos('editPermisos',u.permisos||{});
+    Array.from(document.getElementById('editProveedores').options).forEach(op=>op.selected=(u.proveedores||[]).includes(op.value));
     document.getElementById('editPass').value='';
     document.getElementById('editUserModal').classList.add('show');
   });
@@ -566,7 +715,8 @@ function closeEditModal(){document.getElementById('editUserModal').classList.rem
 
 async function guardarEditUser(){
   const uid=document.getElementById('editUid').value;
-  const data={nombre:document.getElementById('editNombre').value,rol:document.getElementById('editRol').value};
+  const data={nombre:document.getElementById('editNombre').value,almacen_id:parseInt(document.getElementById('editAlmacen').value)||null,proveedores:selectedValues('editProveedores'),permisos:getPermisos('editPermisos')};
+  if(!data.almacen_id){toast('Selecciona un almacen valido','warning');return}
   const pw=document.getElementById('editPass').value;if(pw)data.password=pw;
   try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});toast('Usuario actualizado','success');closeEditModal();loadUsers()}catch(e){toast(e.message,'error')}
 }
@@ -574,6 +724,49 @@ async function guardarEditUser(){
 async function deactivateUser(uid,name){if(!confirm(`Desactivar a "${name}"?`))return;try{await API('/admin/usuarios/'+uid,{method:'DELETE'});toast('Usuario desactivado','success');loadUsers()}catch(e){toast(e.message,'error')}}
 
 async function reactivateUser(uid){try{await API('/admin/usuarios/'+uid,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo:true})});toast('Usuario reactivado','success');loadUsers()}catch(e){toast(e.message,'error')}}
+
+// ============ ADMIN: WAREHOUSES ============
+async function loadWarehouses(){
+  if(!currentUser||!currentUser.permisos||!currentUser.permisos.manage_warehouses){
+    document.getElementById('warehousesTable').innerHTML='<p style="color:var(--text3)">Requiere permiso: Gestion almacenes.</p>';
+    return;
+  }
+  try{
+    if(!adminContext.almacenes?.length)await loadAdminContext();
+    const rows=(adminContext.almacenes||[]).map(a=>`<tr><td class="mono">${a.id}</td><td>${esc(a.nombre)}</td><td class="text-center">${a.activo?'<span class="badge badge-green">Activo</span>':'<span class="badge badge-red">Inactivo</span>'}</td><td class="mono" style="font-size:.8rem">${esc((a.created_at||'').split(' ')[0])}</td><td style="display:flex;gap:6px"><button class="btn btn-sm btn-ghost" onclick="editarAlmacen(${a.id},'${esc(a.nombre)}')">✏️ Renombrar</button>${a.activo?`<button class="btn btn-sm btn-danger" onclick="toggleAlmacen(${a.id},false)">Desactivar</button>`:`<button class="btn btn-sm btn-success" onclick="toggleAlmacen(${a.id},true)">Activar</button>`}</td></tr>`).join('');
+    document.getElementById('warehousesTable').innerHTML=`<table><thead><tr><th>ID</th><th>Nombre</th><th class="text-center">Estado</th><th>Creado</th><th></th></tr></thead><tbody>${rows||'<tr><td colspan="5" style="color:var(--text3)">Sin almacenes</td></tr>'}</tbody></table>`;
+  }catch(e){toast(e.message,'error')}
+}
+
+async function crearAlmacen(){
+  const nombre=document.getElementById('newWarehouseName').value.trim();
+  if(!nombre){toast('Nombre requerido','warning');return}
+  try{await API('/admin/almacenes',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre})});toast('Almacen creado','success');document.getElementById('newWarehouseName').value='';await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
+
+async function editarAlmacen(id,nombreActual){
+  const nombre=prompt('Nuevo nombre del almacen',nombreActual||'');
+  if(nombre===null)return;
+  const limpio=nombre.trim();
+  if(!limpio){toast('Nombre requerido','warning');return}
+  try{await API('/admin/almacenes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({nombre:limpio})});toast('Almacen actualizado','success');await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
+
+async function toggleAlmacen(id,activo){
+  const accion=activo?'activar':'desactivar';
+  if(!confirm(`Seguro que quieres ${accion} este almacen?`))return;
+  try{await API('/admin/almacenes/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({activo})});toast(`Almacen ${activo?'activado':'desactivado'}`,'success');await loadAdminContext();loadWarehouses();}catch(e){toast(e.message,'error')}
+}
+
+function exportAuditCsv(){window.open('/api/admin/audit/recent.csv?limit=2000','_blank')}
+
+async function verAuditoria(){
+  try{
+    const rows=await API('/admin/audit/recent?limit=120');
+    const html=rows.length?`<table><thead><tr><th>Fecha</th><th>Usuario</th><th>Accion</th><th>Target</th><th>Detalle</th></tr></thead><tbody>${rows.reverse().map(r=>`<tr><td class="mono">${esc(r.ts)}</td><td>${esc(r.actor)}</td><td>${esc(r.action)}</td><td>${esc(r.target)}</td><td style="font-size:.8rem">${esc(r.extra)}</td></tr>`).join('')}</tbody></table>`:'<p style="color:var(--text3)">Sin eventos de auditoria.</p>';
+    document.getElementById('auditPanel').innerHTML=html;
+  }catch(e){toast(e.message,'error')}
+}
 
 // ============ ADMIN: SETTINGS ============
 async function loadSettings(){
