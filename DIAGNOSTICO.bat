@@ -12,6 +12,7 @@ echo.
 cd /d "%~dp0"
 set "FAILS=0"
 set "WARNS=0"
+set "INVALID_DIST=0"
 set "TMP_LOG=%TEMP%\logitime_diag_pip_%RANDOM%.log"
 
 where python >nul 2>&1 && (set "PY=python" & goto :found)
@@ -47,6 +48,12 @@ if errorlevel 1 (
 if errorlevel 1 (
   echo   [X] No se pudo instalar pywebview tras 3 intentos.
   set /a FAILS+=1
+)
+
+if %INVALID_DIST% gtr 0 (
+  echo.
+  echo   [!] Se detecto "invalid distribution" en pip.
+  call :repair_invalid_pandas
 )
 
 echo.
@@ -129,9 +136,36 @@ type "%TMP_LOG%" | findstr /i "Ignoring invalid distribution" >nul
 if not errorlevel 1 (
   echo   [!] Advertencia detectada en pip (invalid distribution).
   set /a WARNS+=1
+  set "INVALID_DIST=1"
 )
 
 echo   [OK] %_label%
+exit /b 0
+
+:repair_invalid_pandas
+echo   [i] Intentando reparar paquetes residuales de pandas (~andas)...
+%PY% -c "import os,site,glob,shutil; paths=[]; [paths.extend(glob.glob(os.path.join(p,'~andas*'))) for p in site.getsitepackages() if os.path.isdir(p)]; up=site.getusersitepackages(); paths.extend(glob.glob(os.path.join(up,'~andas*')) if os.path.isdir(up) else []); [shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else os.remove(p) for p in paths if os.path.exists(p)]; print('cleaned', len(paths))" >nul 2>&1
+if errorlevel 1 (
+  echo   [!] No se pudo limpiar automaticamente. Continua con advertencia.
+  set /a WARNS+=1
+  exit /b 0
+)
+
+%PY% -m pip install --upgrade --force-reinstall pandas > "%TMP_LOG%" 2>&1
+if errorlevel 1 (
+  echo   [!] Reinstalacion de pandas fallo. Revisa el log:
+  echo       %TMP_LOG%
+  set /a WARNS+=1
+  exit /b 0
+)
+
+type "%TMP_LOG%" | findstr /i "Ignoring invalid distribution" >nul
+if not errorlevel 1 (
+  echo   [!] Persisten advertencias de invalid distribution. Recomendado: borrar manualmente ~andas* en site-packages.
+  set /a WARNS+=1
+) else (
+  echo   [OK] Reparacion de pandas completada.
+)
 exit /b 0
 
 :check_py
