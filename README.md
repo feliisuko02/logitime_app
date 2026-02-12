@@ -43,7 +43,7 @@ python tools/smoke_test.py
 ```
 Si todo está bien, verás algo como:
 ```json
-{"ok": true, "checks": 20}
+{"ok": true, "checks": 21}
 ```
 
 ### 2) Prueba manual en la interfaz
@@ -82,6 +82,7 @@ Si no hay cambios pendientes, no crea commit.
   - `/api/admin/export/almacenes.csv`
   - `/api/admin/audit/recent.csv`
 - Endpoint de capacidades: `GET /api/capabilities`.
+- Endpoint de diagnóstico de entorno: `GET /api/diagnostics/environment`.
 - Todas las respuestas incluyen cabecera `X-Request-Id` para trazabilidad en soporte/logs.
 - `POST /api/admin/usuarios/bulk-status` aplica límite de IDs por request para evitar cargas excesivas.
 - Nuevo panel Inicio (workspace) con KPIs, actividad reciente y recomendaciones accionables.

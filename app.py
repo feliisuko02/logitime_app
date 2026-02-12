@@ -3,11 +3,12 @@ Logitime — Servidor Flask v3
 Novedades: Login con sesiones, admin endpoints, settings editables
 """
 
-import os, sys, io, time, traceback, secrets, threading, uuid
+import os, sys, io, time, traceback, secrets, threading, uuid, platform
 from datetime import timedelta
 import numpy as np
 import pandas as pd
 from functools import wraps
+import flask
 from flask import Flask, request, jsonify, send_from_directory, send_file, abort, session, g
 from flask.json.provider import DefaultJSONProvider
 from database import (
@@ -804,3 +805,35 @@ def api_health():
 @permiso_required("manage_settings")
 def api_compactar():
     return jsonify(compactar_db())
+@app.route("/api/diagnostics/environment")
+@login_required
+def api_diagnostics_environment():
+    import pandas
+    import numpy
+    import openpyxl
+    try:
+        import webview
+        pywebview_ok = hasattr(webview, "create_window")
+        pywebview_ver = getattr(webview, "__version__", "unknown")
+    except Exception:
+        pywebview_ok = False
+        pywebview_ver = "not-installed"
+
+    db = db_stats()
+    return jsonify({
+        "python": sys.version.split()[0],
+        "platform": platform.platform(),
+        "flask": getattr(flask, "__version__", "unknown"),
+        "pandas": getattr(pandas, "__version__", "unknown"),
+        "numpy": getattr(numpy, "__version__", "unknown"),
+        "openpyxl": getattr(openpyxl, "__version__", "unknown"),
+        "pywebview": {"ok": pywebview_ok, "version": pywebview_ver},
+        "db": db,
+        "paths": {
+            "base_dir": STATIC_DIR,
+            "audit_log": AUDIT_LOG_PATH,
+            "db_path": db.get("path"),
+        },
+    })
+
+

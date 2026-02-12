@@ -195,7 +195,13 @@ def main() -> int:
         enabled_shortcuts = [x for x in (ws.get("shortcuts") or []) if x.get("enabled")]
         assert_ok(len(enabled_shortcuts) >= 1, "Workspace sin atajos habilitados")
 
-    print(json.dumps({"ok": True, "checks": 20}, ensure_ascii=False))
+        # 21) Diagnostico de entorno accesible y con versiones
+        r = c.get("/api/diagnostics/environment")
+        assert_ok(r.status_code == 200, f"Diagnostics fallo: {r.status_code}")
+        diag = r.get_json() or {}
+        assert_ok("python" in diag and "flask" in diag, "Diagnostics incompleto")
+
+    print(json.dumps({"ok": True, "checks": 21}, ensure_ascii=False))
     return 0
 
 

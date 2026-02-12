@@ -49,10 +49,22 @@ echo   ========================================
 %PY% -c "import webview; print('   [OK] Pywebview'); print('       create_window:', hasattr(webview,'create_window'))" 2>nul || echo    [X] Pywebview
 echo.
 
+echo   Verificando sintaxis de codigo:
+%PY% -m py_compile app.py database.py main.py engine.py tools\smoke_test.py 2>&1
+if %errorlevel% neq 0 (
+    echo.
+    echo   [X] Hay errores de sintaxis. Corrigelos antes de iniciar.
+    pause
+    exit /b 1
+)
+echo   [OK] Sintaxis Python
+echo.
+
 echo   Probando componentes:
 %PY% -c "from database import init_db; init_db(); print('   [OK] Base de datos')" 2>&1
 %PY% -c "from engine import analizar_excel; print('   [OK] Motor de analisis')" 2>&1
 %PY% -c "from app import app; print('   [OK] Flask app')" 2>&1
+%PY% -c "from app import app; c=app.test_client(); r=c.post('/api/auth/login', json={'username':'admin','password':'admin123'}); d=c.get('/api/diagnostics/environment'); print('   [OK] Diagnostics endpoint' if d.status_code==200 else f'   [X] Diagnostics {d.status_code}')" 2>&1
 echo.
 
 echo   ========================================

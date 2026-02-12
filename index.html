@@ -504,6 +504,19 @@ async function enviarAnalisis(){
 
 // ============ RENDER RESULTADO ============
 let _anomPageSize=50,_anomShowAll=false;
+      <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">${sys.db_compactable?'<button class="btn btn-sm btn-ghost" onclick="compactarDb()">🗜️ Compactar DB</button>':''}<button class="btn btn-sm btn-ghost" onclick="loadWorkspaceOverview()">Refrescar estado</button><button class="btn btn-sm btn-ghost" onclick="copyDiagnostics()">📋 Copiar diagnostico</button></div>`;
+async function copyDiagnostics(){
+  try{
+    const d=await API('/diagnostics/environment');
+    const txt=JSON.stringify(d,null,2);
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(txt);
+      toast('Diagnostico copiado al portapapeles','success');
+    }else{
+      prompt('Copia este diagnostico',txt);
+    }
+  }catch(e){toast('No se pudo obtener diagnostico: '+e.message,'error')}
+}
 
 function renderResultado(d){
   const el=document.getElementById('resultado');clearCharts();
