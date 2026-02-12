@@ -491,26 +491,53 @@ def api_capabilities():
     })
 
 
-@app.route("/api/admin/context")
-@login_required
-def api_admin_context():
-    if not _can_any("manage_users", "manage_settings", "manage_warehouses"):
-        return _error("No tienes permisos de administracion", 403)
-    return jsonify({
-        "almacenes": listar_almacenes(),
-        "proveedores": listar_proveedores(),
-        "can_manage_users": _can("manage_users"),
-        "feed": [],
-        "system": {"api_ok": True},
+    """Resumen operativo para la pantalla Inicio."""
+        {
+            "id": "upload",
+            "label": "Cargar nuevo analisis",
+            "page": "upload",
+            "desc": "Sube el Excel y genera indicadores en minutos.",
+            "enabled": bool(permisos.get("analizar", False)),
+        },
+        {
+            "id": "dashboard",
+            "label": "Revisar dashboard",
+            "page": "dashboard",
+            "desc": "Consulta tendencia, top operarios y clientes.",
+            "enabled": bool(permisos.get("dashboard", False)),
+        },
+        {
+            "id": "historial",
+            "label": "Abrir historial",
+            "page": "historial",
+            "desc": "Recupera analisis recientes y exporta reportes.",
+            "enabled": bool(permisos.get("historial", False)),
+        },
+        "user": {
+            "nombre": session.get("nombre") or session.get("username") or "",
+            "username": session.get("username") or "",
+        },
+        feed.append(
+            {
+                "kind": "analysis",
+                "title": "Analisis: " + (r.get("archivo") or "Sin nombre"),
+                "meta": f"{r.get('total_movimientos', 0)} mov | {r.get('total_anomalias', 0)} anom",
+                "ts": r.get("fecha") or "",
+            }
+        )
 
-    feed = []
-    for r in recent[:5]:
-        feed.append({
-            "kind": "analysis",
-            "title": f"Analisis: {r.get('archivo') or 'Sin nombre'}",
-            "meta": f"{r.get('total_movimientos', 0)} mov · {r.get('total_anomalias', 0)} anom",
-            "ts": r.get("fecha") or "",
-        })
+            action = row.get("action") or "EVENTO"
+            actor = row.get("actor") or "-"
+            feed.append(
+                {
+                    "kind": "audit",
+                    "title": f"{action} - {actor}",
+                    "meta": row.get("extra") or row.get("target") or "",
+                    "ts": row.get("ts") or "",
+                }
+            )
+
+
     if _can_any("manage_users", "manage_settings", "manage_warehouses"):
         for row in _read_recent_audit(limit=5):
             feed.append({
